@@ -82,6 +82,33 @@ def get_token() -> str:
             return res["access_token"]
     raise PermissionError("AUTH_REQUIRED")
 
+
+def _parse_scopes(raw: str):
+    # Acepta coma o espacio como separador, limpia comillas/corchetes y deduplica
+    tokens = []
+    raw = raw.replace(" ", ",")
+    for part in raw.split(","):
+        t = part.strip().strip("[](){}\"'")
+        if t:
+            tokens.append(t)
+
+    # Nunca pedir OIDC en device code (no son necesarios y causan problemas en algunos entornos)
+    OIDC_BLOCKED = {"openid", "profile", "offline_access"}
+    cleaned = [t for t in tokens if t.lower() not in OIDC_BLOCKED]
+
+    # Valor por defecto seguro si alguien borra todo
+    if not cleaned:
+        cleaned = ["Files.ReadWrite.All", "User.Read"]
+
+    # Devolver como LISTA (nunca set/frozenset) y sin duplicados preservando orden
+    out = []
+    for t in cleaned:
+        if t not in out:
+            out.append(t)
+    return out
+
+SCOPES = _parse_scopes(RAW_SCOPES)
+
 def start_device_auth() -> str:
     cache = _load_cache()
     app = _new_app(cache)
