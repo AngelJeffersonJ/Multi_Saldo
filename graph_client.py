@@ -19,28 +19,34 @@ CLIENT_ID = os.getenv("CLIENT_ID", "")
 
 # -------------------- SCOPES --------------------
 # Permite definir en .env: GRAPH_SCOPES="Files.ReadWrite.All,offline_access,openid,profile,User.Read"
+# --- SCOPES (reemplaza todo este bloque) ---
+# --- SCOPES (reemplaza todo este bloque) ---
 _ENV_SCOPES = os.getenv("GRAPH_SCOPES", "").strip()
 
-
-def _to_scope_list(values: Optional[Iterable]) -> List[str]:
-    """
-    Convierte cualquier cosa (str CSV, lista, tupla, set, frozenset) a list[str].
-    Elimina vacíos y recorta espacios.
-    """
-    if not values:
+def _normalize_scopes(scopes) -> List[str]:
+    """Convierte scopes a list[str] cueste lo que cueste."""
+    if not scopes:
         return []
-    if isinstance(values, str):
-        parts = [p.strip() for p in values.split(",")]
-        return [p for p in parts if p]
-    if isinstance(values, (set, frozenset, tuple, list)):
-        return [str(p).strip() for p in list(values) if str(p).strip()]
-    # iterable genérico
-    try:
-        return [str(p).strip() for p in list(values) if str(p).strip()]
-    except Exception:
-        return [str(values).strip()]
+    if isinstance(scopes, str):
+        # aceptar coma o espacios
+        parts = [p.strip() for p in scopes.replace(" ", ",").split(",")]
+        scopes_list = [p for p in parts if p]
+    elif isinstance(scopes, (set, frozenset, tuple, list)):
+        scopes_list = [str(p).strip() for p in list(scopes) if str(p).strip()]
+    else:
+        try:
+            scopes_list = [str(p).strip() for p in list(scopes) if str(p).strip()]
+        except Exception:
+            scopes_list = [str(scopes).strip()]
 
-# Scopes por defecto (válidos para OneDrive + login interactivo)
+    # unicidad preservando orden
+    seen, out = set(), []
+    for s in scopes_list:
+        if s and s not in seen:
+            seen.add(s); out.append(s)
+    return out
+
+# Por defecto (si no defines GRAPH_SCOPES)
 _DEFAULT_SCOPES = [
     "Files.ReadWrite.All",
     "User.Read",
@@ -49,7 +55,8 @@ _DEFAULT_SCOPES = [
     "profile",
 ]
 
-SCOPES: List[str] = _to_scope_list(_ENV_SCOPES) or list(_DEFAULT_SCOPES)
+SCOPES: List[str] = _normalize_scopes(_ENV_SCOPES) or list(_DEFAULT_SCOPES)
+
 
 EXCEL_PATH = os.getenv("EXCEL_PATH", "/me/drive/root:/Documentos/resultados/central_solicitudes.xlsx")
 COMPROBANTES_ROOT = os.getenv("COMPROBANTES_ROOT", "/me/drive/root:/Comprobantes")
@@ -85,7 +92,7 @@ def get_token() -> str:
     if not CLIENT_ID:
         raise RuntimeError("Falta CLIENT_ID en .env")
 
-    scopes = list(SCOPES)  # ← asegura lista
+    scopes = _normalize_scopes(SCOPES)  # <— SIEMPRE lista aquí
 
     cache = _load_cache()
     app = msal.PublicClientApplication(
@@ -93,16 +100,15 @@ def get_token() -> str:
         authority=f"https://login.microsoftonline.com/{TENANT_ID}",
         token_cache=cache,
     )
-    # 1) silencioso si hay cuenta
+
     accounts = app.get_accounts()
     if accounts:
-        res = app.acquire_token_silent(scopes, account=accounts[0])
+        res = app.acquire_token_silent(scopes, account=accounts[0])  # lista
         if res and "access_token" in res:
             _save_cache(cache)
             return res["access_token"]
 
-    # 2) device code flow
-    flow = app.initiate_device_flow(scopes=scopes)  # ← lista, no set
+    flow = app.initiate_device_flow(scopes=scopes)  # lista
     if "user_code" not in flow:
         raise RuntimeError(f"No se pudo iniciar device code flow: {flow}")
     print("\n== Autenticación requerida ==\n" + flow["message"])
