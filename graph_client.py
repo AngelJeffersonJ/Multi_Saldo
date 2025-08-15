@@ -1,7 +1,6 @@
 import os
 import io
 import time
-import json
 import urllib.parse
 import hashlib
 from datetime import datetime
@@ -16,41 +15,42 @@ load_dotenv()
 TENANT_ID = os.getenv("TENANT_ID", "common")
 CLIENT_ID = os.getenv("CLIENT_ID", "")
 
-# ------- SCOPES: SIEMPRE LISTA -------
+# === Normalización de scopes y filtrado de reservados ===
 _ENV_SCOPES = os.getenv("GRAPH_SCOPES", "").strip()
+_RESERVED = {"openid", "profile", "offline_access"}
 
 def _normalize_scopes(scopes) -> List[str]:
     if not scopes:
         return []
     if isinstance(scopes, str):
         parts = [p.strip() for p in scopes.replace(" ", ",").split(",")]
-        scopes_list = [p for p in parts if p]
+        lst = [p for p in parts if p]
     elif isinstance(scopes, (set, frozenset, tuple, list)):
-        scopes_list = [str(p).strip() for p in list(scopes) if str(p).strip()]
+        lst = [str(p).strip() for p in list(scopes) if str(p).strip()]
     else:
         try:
-            scopes_list = [str(p).strip() for p in list(scopes) if str(p).strip()]
+            lst = [str(p).strip() for p in list(scopes) if str(p).strip()]
         except Exception:
-            scopes_list = [str(scopes).strip()]
+            lst = [str(scopes).strip()]
+    # quitar duplicados, mantener orden
     seen, out = set(), []
-    for s in scopes_list:
+    for s in lst:
         if s and s not in seen:
             seen.add(s); out.append(s)
     return out
 
-_DEFAULT_SCOPES = [
-    "Files.ReadWrite.All",
-    "User.Read",
-    "offline_access",
-    "openid",
-    "profile",
-]
+def _filter_reserved(scopes: List[str]) -> List[str]:
+    # MSAL añade openid/profile/offline_access automáticamente.
+    return [s for s in scopes if s not in _RESERVED]
 
+# Defaults SOLO con scopes de Microsoft Graph
+_DEFAULT_SCOPES = ["Files.ReadWrite.All", "User.Read"]
+
+# Lista base (desde el .env o defaults)
 SCOPES: List[str] = _normalize_scopes(_ENV_SCOPES) or list(_DEFAULT_SCOPES)
 
 EXCEL_PATH = os.getenv("EXCEL_PATH", "/me/drive/root:/Documentos/resultados/central_solicitudes.xlsx")
 COMPROBANTES_ROOT = os.getenv("COMPROBANTES_ROOT", "/me/drive/root:/Comprobantes")
-
 TOKEN_CACHE_FILE = os.getenv("TOKEN_CACHE_FILE", "msal_token_cache.json")
 
 WORKSHEET_NAME = os.getenv("WORKSHEET_NAME", "Hoja1")
@@ -63,6 +63,7 @@ DEPS_WORKSHEET = os.getenv("DEPS_WORKSHEET", "Depositos")
 DEPS_TABLE = os.getenv("DEPS_TABLE", "Deps")
 
 GRAPH_API = "https://graph.microsoft.com/v1.0"
+
 
 # -------------------- AUTH --------------------
 def _load_cache() -> msal.SerializableTokenCache:
@@ -83,11 +84,10 @@ def get_token() -> str:
     if not CLIENT_ID:
         raise RuntimeError("Falta CLIENT_ID en .env")
 
-    scopes = _normalize_scopes(SCOPES)
-    if not scopes:
-        scopes = list(_DEFAULT_SCOPES)
-
-    print(f"[MSAL] Using scopes type={type(scopes).__name__} -> {scopes}")
+    # 1) normaliza lo que venga del .env
+    scopes_all = _normalize_scopes(SCOPES) or list(_DEFAULT_SCOPES)
+    # 2) filtra scopes reservados (MSAL los agrega solo)
+    scopes = _filter_reserved(scopes_all)
 
     cache = _load_cache()
     app = msal.PublicClientApplication(
@@ -96,14 +96,16 @@ def get_token() -> str:
         token_cache=cache,
     )
 
-    accounts = app.get_accounts()
-    if accounts:
-        res = app.acquire_token_silent(scopes, account=accounts[0])
+    # silent (usa refresh token del cache)
+    accts = app.get_accounts()
+    if accts:
+        res = app.acquire_token_silent(scopes, account=accts[0])
         if res and "access_token" in res:
             _save_cache(cache)
             return res["access_token"]
 
-    flow = app.initiate_device_flow(scopes=scopes)
+    # device code flow
+    flow = app.initiate_device_flow(scopes=scopes)  # <-- ya sin reservados
     if "user_code" not in flow:
         raise RuntimeError(f"No se pudo iniciar device code flow: {flow}")
     print("\n== Autenticación requerida ==\n" + flow["message"])
@@ -118,6 +120,7 @@ def _h(token: str, content_json=True) -> Dict[str, str]:
     if content_json:
         h["Content-Type"] = "application/json"
     return h
+
 
 # -------------------- OneDrive helpers --------------------
 def _get_driveitem_by_path(token: str, path: str) -> Dict[str, Any]:
@@ -154,6 +157,7 @@ def _ensure_path_chain(token: str, root_path: str, chain: List[str]) -> Dict[str
         current_id = _ensure_folder(token, current_id, part)
     return _get_item_json(token, current_id)
 
+
 # -------------------- Upload (simple + sesión) --------------------
 def upload_large_with_session(token: str, folder_item_id: str, final_name: str, fileobj, chunk_size=8*1024*1024):
     create_url = f"{GRAPH_API}/me/drive/items/{folder_item_id}:/{urllib.parse.quote(final_name)}:/createUploadSession"
@@ -171,10 +175,7 @@ def upload_large_with_session(token: str, folder_item_id: str, final_name: str, 
         end = min(start + chunk_size, total) - 1
         fileobj.seek(start)
         chunk = fileobj.read(end - start + 1)
-        headers = {
-            "Content-Length": str(len(chunk)),
-            "Content-Range": f"bytes {start}-{end}/{total}"
-        }
+        headers = {"Content-Length": str(len(chunk)), "Content-Range": f"bytes {start}-{end}/{total}"}
         resp = requests.put(upload_url, headers=headers, data=chunk, timeout=300)
         if resp.status_code in (200, 201):
             return resp.json()
@@ -200,10 +201,7 @@ def upload_file_stream(
     rename_safe: bool = True,
 ) -> Dict[str, Any]:
     fecha = fecha or datetime.now()
-    chain = [
-        (cliente_nombre or "SIN_CLIENTE").strip() or "SIN_CLIENTE",
-        f"{fecha:%Y}", f"{fecha:%m}", f"{fecha:%d}",
-    ]
+    chain = [(cliente_nombre or "SIN_CLIENTE").strip() or "SIN_CLIENTE", f"{fecha:%Y}", f"{fecha:%m}", f"{fecha:%d}"]
     dest_folder = _ensure_path_chain(token, COMPROBANTES_ROOT, chain)
     folder_id = dest_folder["id"]
 
@@ -226,6 +224,7 @@ def upload_file_stream(
     else:
         return upload_large_with_session(token, folder_id, final_name, file_stream)
 
+
 # -------------------- Excel base local --------------------
 def _generate_local_base_excel(path: str):
     from openpyxl import Workbook
@@ -246,6 +245,7 @@ def _generate_local_base_excel(path: str):
     ws3.append(["cliente_id","cliente_nombre","rfc","razon_social","cfdi","uso_cfdi","direccion","contacto","email","numero_usuario"])
 
     wb.save(path)
+
 
 # -------------------- Excel (tablas) --------------------
 def _ensure_excel_exists(token: str, template_local: Optional[str] = None) -> Dict[str, Any]:
@@ -331,6 +331,7 @@ def ensure_excel_and_table(token: str, template_local: Optional[str] = None):
     table_id = _ensure_table_exists(token, wb_item["id"], WORKSHEET_NAME, TABLE_NAME)
     return wb_item, table_id
 
+
 # -------------------- RESUMEN “Deps” --------------------
 import locale
 try:
@@ -404,7 +405,8 @@ def add_solicitud_row(token: str, payload: Dict[str, Any], template_local: Optio
     append_rows(token, wb_item["id"], table_id, [row])
     return {"ok": True, "excel": wb_item.get("name"), "tabla": TABLE_NAME}
 
-# -------------------- Clientes --------------------
+
+# -------------------- Clientes (cards) --------------------
 def get_clientes_por_usuario(token: str, numero_usuario: str) -> List[Dict[str, Any]]:
     wb = _get_driveitem_by_path(token, EXCEL_PATH)
     ws_list = requests.get(f"{GRAPH_API}/me/drive/items/{wb['id']}/workbook/worksheets", headers=_h(token), timeout=60)
