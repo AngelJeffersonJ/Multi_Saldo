@@ -1,6 +1,6 @@
-flask==3.0.3
-requests==2.32.3
-msal==1.31.0
-python-dotenv==1.0.1
-openpyxl==3.1.5
-gunicorn==22.0.0
+flask
+gunicorn
+requests
+msal
+python-dotenv
+openpyxl
