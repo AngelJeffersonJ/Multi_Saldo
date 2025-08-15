@@ -14,7 +14,7 @@
     .card{border:1px solid #ddd;border-radius:12px;padding:12px}
     .card input[type="radio"]{transform:scale(1.2);margin-right:8px}
     label{display:block;margin:6px 0 4px}
-    input[type="text"], input[type="number"], input[type="date"]{width:100%;padding:8px;border:1px solid #ccc;border-radius:8px}
+    input[type="text"], input[type="date"]{width:100%;padding:8px;border:1px solid #ccc;border-radius:8px}
     input[type="file"]{margin-top:4px}
     .hint{color:#666;font-size:12px}
     .muted{color:#777}
@@ -61,7 +61,11 @@
       </div>
       <div class="col" style="margin-top:8px;">
         <label>Importe</label>
-        <input type="text" name="importe" placeholder="$0.00" pattern="^[\\$\\s0-9\\.,]+$" required>
+        <input id="importe" type="text" name="importe" placeholder="$0.00"
+               inputmode="decimal" autocomplete="off"
+               pattern="[0-9\$\s\.,]+"
+               title="Monto válido. Ej: 1234.56 o $1,234.56" required>
+        <input type="hidden" id="importe_clean" name="importe_clean" value="">
         <div class="hint">Ejemplo: $1,234.56</div>
       </div>
     </fieldset>
@@ -74,27 +78,40 @@
 
     <fieldset id="foliosBox">
       <legend>Folio / Autorización</legend>
+
+      <!-- Otros bancos (NUMÉRICO) -->
       <div id="otrosBancosBox">
         <label>Folio / Referencia (otros bancos)</label>
-        <input type="text" name="folio">
+        <input id="folio_otros" type="text" name="folio"
+               inputmode="numeric" autocomplete="off"
+               minlength="1" maxlength="20" pattern="[0-9]{1,20}"
+               title="Solo números (1 a 20 dígitos)">
       </div>
 
+      <!-- BBVA practicaja (numérico) -->
       <div id="bbvaPracticajaBox" class="hidden">
         <div class="row">
           <div class="col">
             <label>Folio (solo números)</label>
-            <input type="text" name="autoclear_folio" pattern="^\\d*$" data-bind="folio">
+            <input id="folio_bbva" type="text" inputmode="numeric" autocomplete="off"
+                   minlength="1" maxlength="20" pattern="[0-9]{1,20}"
+                   title="Solo números (1 a 20 dígitos)" data-bind="folio">
           </div>
           <div class="col">
             <label>Autorización (solo números)</label>
-            <input type="text" name="autoclear_aut" pattern="^\\d*$" data-bind="autorizacion">
+            <input id="aut_bbva" type="text" inputmode="numeric" autocomplete="off"
+                   minlength="1" maxlength="20" pattern="[0-9]{1,20}"
+                   title="Solo números (1 a 20 dígitos)" data-bind="autorizacion">
           </div>
         </div>
       </div>
 
+      <!-- BBVA ventanilla (numérico) -->
       <div id="bbvaVentanillaBox" class="hidden">
         <label>Folio o Movimiento (solo números)</label>
-        <input type="text" name="autoclear_folmov" pattern="^\\d*$" data-bind="folio_movimiento">
+        <input id="mov_bbva" type="text" inputmode="numeric" autocomplete="off"
+               minlength="1" maxlength="20" pattern="[0-9]{1,20}"
+               title="Solo números (1 a 20 dígitos)" data-bind="folio_movimiento">
         <div class="hint">Si ventanilla, solo llena este campo y deja Autorización vacío.</div>
       </div>
 
@@ -106,7 +123,9 @@
       <div class="row">
         <div class="col">
           <label>Número de usuario</label>
-          <input type="text" id="numero_usuario" name="numero_usuario" placeholder="15333" pattern="^\\d+$" required>
+          <input type="text" id="numero_usuario" name="numero_usuario" placeholder="15333"
+                 inputmode="numeric" autocomplete="off"
+                 pattern="[0-9]+" title="Solo números" required>
         </div>
         <div class="col">
           <label>Requiere factura</label>
@@ -143,6 +162,32 @@
   </form>
 
   <script>
+    // === Utilidades de validación ===
+    function onlyDigits(el){ el.value = el.value.replace(/\D+/g,''); el.setCustomValidity(''); }
+    function setNumericValidity(el){
+      if(!el) return;
+      el.addEventListener('input', ()=>onlyDigits(el));
+      el.addEventListener('invalid', ()=>{
+        if(el.validity.patternMismatch || el.validity.typeMismatch){
+          el.setCustomValidity('Solo se permiten números (0-9).');
+        }else if(el.validity.valueMissing){
+          el.setCustomValidity('Este campo es obligatorio.');
+        }
+      });
+      el.addEventListener('blur', ()=>el.setCustomValidity(''));
+    }
+    function normalizeAmountToHidden(){
+      const raw = (document.getElementById('importe').value || '').trim();
+      // deja solo dígitos y UN punto decimal
+      let v = raw.replace(/[^0-9.,]/g,'').replace(',', '.');
+      const parts = v.split('.');
+      if(parts.length > 2){
+        const last = parts.pop();
+        v = parts.join('') + '.' + last;
+      }
+      document.getElementById('importe_clean').value = v;
+    }
+
     // fecha hoy por defecto
     (function(){
       const f = document.getElementById('fecha_iso');
@@ -160,25 +205,16 @@
     const bbvaVentanillaBox = document.getElementById('bbvaVentanillaBox');
     const foliosBox = document.getElementById('foliosBox');
 
-    function clearFolioFields() {
-      // inputs especiales con data-bind
-      document.querySelectorAll('[data-bind]').forEach(el => el.value = '');
-      // los name "folio"/"autorizacion"/"folio_movimiento" reales los enviamos con hidden si hace falta
-      const ensureHidden = (name) => {
-        if (!document.querySelector(`input[name="${name}"]`)) {
-          const h = document.createElement('input');
-          h.type = 'hidden'; h.name = name; h.value = '';
-          document.getElementById('mainForm').appendChild(h);
-        }
-      };
-      ensureHidden('folio'); ensureHidden('autorizacion'); ensureHidden('folio_movimiento');
-    }
-
     function toggleBankUI() {
       const bancoSel = document.querySelector('input[name="banco"]:checked');
       const productoSel = document.querySelector('input[name="producto"]:checked');
       const banco = bancoSel ? bancoSel.value : "";
       const producto = productoSel ? productoSel.value : "";
+
+      const folioOtros = document.getElementById('folio_otros');
+      const folioBBVA  = document.getElementById('folio_bbva');
+      const autBBVA    = document.getElementById('aut_bbva');
+      const movBBVA    = document.getElementById('mov_bbva');
 
       if (producto === "TAE") {
         foliosBox.classList.add('hidden');
@@ -186,7 +222,7 @@
         bbvaPractiBox.classList.add('hidden');
         bbvaVentanillaBox.classList.add('hidden');
         otrosBancosBox.classList.add('hidden');
-        clearFolioFields();
+        [folioOtros, folioBBVA, autBBVA, movBBVA].forEach(el=>{ if(el){ el.required=false; el.value=''; }});
         return;
       }
 
@@ -195,11 +231,13 @@
       if (banco === "BBVA") {
         tipoBBVABox.classList.remove('hidden');
         otrosBancosBox.classList.add('hidden');
+        if (folioOtros) folioOtros.required = false;
       } else {
         tipoBBVABox.classList.add('hidden');
         bbvaPractiBox.classList.add('hidden');
         bbvaVentanillaBox.classList.add('hidden');
         otrosBancosBox.classList.remove('hidden');
+        if (folioOtros) folioOtros.required = true; // numérico requerido para otros bancos
       }
     }
 
@@ -209,27 +247,35 @@
       const productoSel = document.querySelector('input[name="producto"]:checked');
       const producto = productoSel ? productoSel.value : "";
 
+      const folioBBVA  = document.getElementById('folio_bbva');
+      const autBBVA    = document.getElementById('aut_bbva');
+      const movBBVA    = document.getElementById('mov_bbva');
+
       if (producto === "TAE") {
         bbvaPractiBox.classList.add('hidden');
         bbvaVentanillaBox.classList.add('hidden');
+        [folioBBVA, autBBVA, movBBVA].forEach(el=>{ if(el){ el.required=false; el.value=''; }});
         return;
       }
 
       if (tipo === "practicaja") {
         bbvaPractiBox.classList.remove('hidden');
         bbvaVentanillaBox.classList.add('hidden');
+        if (folioBBVA) folioBBVA.required = true;
+        if (autBBVA)   autBBVA.required   = true;
+        if (movBBVA)   { movBBVA.required = false; movBBVA.value=''; }
       } else if (tipo === "ventanilla") {
         bbvaPractiBox.classList.add('hidden');
         bbvaVentanillaBox.classList.remove('hidden');
+        if (movBBVA)   movBBVA.required   = true;
+        if (folioBBVA) { folioBBVA.required = false; folioBBVA.value=''; }
+        if (autBBVA)   { autBBVA.required   = false; autBBVA.value=''; }
       } else {
         bbvaPractiBox.classList.add('hidden');
         bbvaVentanillaBox.classList.add('hidden');
+        [folioBBVA, autBBVA, movBBVA].forEach(el=>{ if(el){ el.required=false; }});
       }
     }
-
-    bancoRadios.forEach(r => r.addEventListener('change', toggleBankUI));
-    tipoBBVARadios.forEach(r => r.addEventListener('change', toggleBBVAType));
-    productoRadios.forEach(r => r.addEventListener('change', () => { toggleBankUI(); toggleBBVAType(); }));
 
     // clientes
     const numUsuario = document.getElementById('numero_usuario');
@@ -280,10 +326,35 @@
         clientesMsg.textContent = "Error de red al consultar clientes.";
       }
     }
-    numUsuario.addEventListener('blur', fetchClientes);
 
-    // estado inicial
-    toggleBankUI(); toggleBBVAType();
+    // Hook de validaciones y normalizaciones
+    document.addEventListener('DOMContentLoaded', () => {
+      // fecha por defecto
+      const f = document.getElementById('fecha_iso');
+      f.value = new Date().toISOString().slice(0,10);
+
+      // Sanitiza numéricos
+      ['folio_otros','folio_bbva','aut_bbva','mov_bbva','numero_usuario'].forEach(id=>{
+        setNumericValidity(document.getElementById(id));
+      });
+
+      // Normaliza importe a hidden limpio
+      const imp = document.getElementById('importe');
+      ['input','blur','change'].forEach(ev=> imp.addEventListener(ev, normalizeAmountToHidden));
+      normalizeAmountToHidden();
+
+      // Listeners de UI
+      document.querySelectorAll('input[name="banco"]').forEach(r=>r.addEventListener('change', toggleBankUI));
+      document.querySelectorAll('input[name="tipo_bbva"]').forEach(r=>r.addEventListener('change', toggleBBVAType));
+      document.querySelectorAll('input[name="producto"]').forEach(r=>r.addEventListener('change', ()=>{ toggleBankUI(); toggleBBVAType(); }));
+
+      // Carga de clientes
+      numUsuario.addEventListener('blur', fetchClientes);
+
+      // Estado inicial
+      toggleBankUI(); 
+      toggleBBVAType();
+    });
   </script>
 </body>
 </html>
