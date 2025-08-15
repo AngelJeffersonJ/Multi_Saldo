@@ -1,139 +1,115 @@
-# app.py
 import os
-import io
 from datetime import datetime
+from dotenv import load_dotenv
 from flask import Flask, render_template, request, jsonify
 
 from graph_client import (
-    get_token, upload_file_stream,
-    add_solicitud_row, add_deps_row, get_clientes_por_usuario
+    get_token,
+    upload_file_stream,
+    add_solicitud_row,
+    add_deps_row,
+    get_clientes_por_usuario,
 )
 
-from dotenv import load_dotenv
-load_dotenv()
+load_dotenv()  # local; en Railway usa variables del panel
 
-TEMPLATE_LOCAL_XLSX = "central_solicitudes.xlsx"  # se genera solo si falta
+app = Flask(__name__, template_folder="templates")
 
-ALLOWED_EXT = {"jpg", "jpeg", "png", "pdf"}
-
-app = Flask(__name__)
-app.config["MAX_CONTENT_LENGTH"] = 20 * 1024 * 1024  # 20 MB
-
-
-def allowed_file(filename: str) -> bool:
-    return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_EXT
-
-
-@app.get("/health")
-def health():
-    return "ok", 200
-
-
-@app.get("/")
-def form():
+@app.route("/", methods=["GET"])
+def index():
     return render_template("form.html")
 
-
-@app.get("/api/clientes")
+@app.route("/api/clientes", methods=["GET"])
 def api_clientes():
-    numero = (request.args.get("usuario") or "").strip()
-    if not numero:
-        return jsonify({"ok": True, "items": []})
     try:
+        numero_usuario = (request.args.get("usuario") or "").strip()
+        if not numero_usuario:
+            return jsonify({"ok": True, "items": []})
         token = get_token()
-        items = get_clientes_por_usuario(token, numero)
+        items = get_clientes_por_usuario(token, numero_usuario)
         return jsonify({"ok": True, "items": items})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500
 
-
-@app.post("/submit")
+@app.route("/submit", methods=["POST"])
 def submit():
     try:
         token = get_token()
-    except Exception as e:
-        return f"Error de autenticación Microsoft: {e}", 500
 
-    # Campos del formulario
-    fecha_iso = (request.form.get("fecha_iso") or datetime.now().strftime("%Y-%m-%d")).strip()
-    banco = (request.form.get("banco") or "").strip()
-    forma_pago = (request.form.get("forma_pago") or "").strip()
-    producto = (request.form.get("producto") or "").strip()
-    importe = (request.form.get("importe") or "").strip()
+        # ----- Campos del formulario -----
+        fecha_iso = request.form.get("fecha_iso") or datetime.now().strftime("%Y-%m-%d")
+        banco = (request.form.get("banco") or "").strip()
+        forma_pago = (request.form.get("forma_pago") or "").strip()
+        producto = (request.form.get("producto") or "").strip()
+        importe = (request.form.get("importe") or "").strip()
 
-    tipo_bbva = (request.form.get("tipo_bbva") or "").strip()
-    folio = (request.form.get("folio") or "").strip()
-    autorizacion = (request.form.get("autorizacion") or "").strip()
-    folio_movimiento = (request.form.get("folio_movimiento") or "").strip()
+        tipo_bbva = (request.form.get("tipo_bbva") or "").strip() if banco == "BBVA" else ""
 
-    numero_usuario = (request.form.get("numero_usuario") or "").strip()
-    requiere_factura = request.form.get("requiere_factura") == "on"
-    observaciones = (request.form.get("observaciones") or "").strip()
-    realizo = (request.form.get("realizo") or "").strip()
+        # Folios según UI (todos llegan por su nombre final)
+        folio = (request.form.get("folio") or "").strip()
+        autorizacion = (request.form.get("autorizacion") or "").strip()
+        folio_movimiento = (request.form.get("folio_movimiento") or "").strip()
 
-    cliente_id = (request.form.get("cliente_id") or "").strip()
-    cliente_nombre = (request.form.get("cliente_nombre") or "").strip()
+        numero_usuario = (request.form.get("numero_usuario") or "").strip()
+        requiere_factura = bool(request.form.get("requiere_factura"))
+        realizo = (request.form.get("realizo") or "").strip()
+        observaciones_extra = (request.form.get("observaciones") or "").strip()
 
-    # Si producto es TAE: forzar vacíos los campos de referencia
-    if producto.lower() == "tae":
-        tipo_bbva = ""
-        folio = ""
-        autorizacion = ""
-        folio_movimiento = ""
+        cliente_id = (request.form.get("cliente_id") or "").strip()
+        cliente_nombre = (request.form.get("cliente_nombre") or "").strip()
 
-    f = request.files.get("comprobante")
-    if not f or f.filename == "":
-        return "Falta adjuntar comprobante", 400
-    if not allowed_file(f.filename):
-        return "Formato de archivo no permitido (solo jpg/jpeg/png/pdf)", 400
+        # Comprobante (obligatorio)
+        comp_file = request.files.get("comprobante")
+        if not comp_file or comp_file.filename == "":
+            return "Archivo de comprobante requerido", 400
 
-    # Subir archivo a OneDrive
-    file_bytes = io.BytesIO(f.read())
-    file_bytes.seek(0)
-    try:
-        up = upload_file_stream(
+        # ----- Subir comprobante a OneDrive -----
+        # Estructura: /Comprobantes/<Cliente>/<YYYY>/<MM>/<DD>/
+        uploaded = upload_file_stream(
             token=token,
-            file_stream=file_bytes,
-            original_filename=f.filename,
-            cliente_nombre=cliente_nombre or "SIN_CLIENTE",
-            fecha=datetime.fromisoformat(fecha_iso) if fecha_iso else datetime.now(),
+            file_stream=comp_file.stream,
+            original_filename=comp_file.filename,
+            cliente_nombre=cliente_nombre or cliente_id or "SIN_CLIENTE",
+            fecha=datetime.fromisoformat(fecha_iso) if fecha_iso else None,
+            rename_safe=True,
         )
-        web_url = up.get("webUrl", "")
-    except Exception as e:
-        return f"Error subiendo a OneDrive: {e}", 500
+        comprobante_url = uploaded.get("@microsoft.graph.downloadUrl", "") or uploaded.get("webUrl", "")
 
-    payload = {
-        "fecha_iso": fecha_iso,
-        "banco": banco,
-        "forma_pago": forma_pago,
-        "producto": producto,
-        "importe": importe,
-        "tipo_bbva": tipo_bbva,
-        "folio": folio,
-        "autorizacion": autorizacion,
-        "folio_movimiento": folio_movimiento,
-        "numero_usuario": numero_usuario,
-        "requiere_factura": requiere_factura,
-        "observaciones": observaciones,
-        "cliente_id": cliente_id,
-        "cliente_nombre": cliente_nombre,
-        "comprobante_url": web_url,
-        "origen": "formulario",
-        "realizo": realizo,
-    }
+        # ----- Payload común -----
+        payload = {
+            "fecha_iso": fecha_iso,
+            "banco": banco,
+            "forma_pago": forma_pago,
+            "producto": producto,
+            "importe": importe,
+            "tipo_bbva": tipo_bbva,
+            "folio": folio,
+            "autorizacion": autorizacion,
+            "folio_movimiento": folio_movimiento,
+            "numero_usuario": numero_usuario,
+            "requiere_factura": requiere_factura,
+            "realizo": realizo,
+            "observaciones": observaciones_extra,
+            "cliente_id": cliente_id,
+            "cliente_nombre": cliente_nombre,
+            "comprobante_url": comprobante_url,
+            "origen": "formulario",
+        }
 
-    try:
-        add_solicitud_row(token, payload, template_local=TEMPLATE_LOCAL_XLSX)
-    except Exception as e:
-        return f"Subí el archivo pero falló al escribir en Excel 'Solicitudes': {e}", 500
+        # ----- Escribir en Excel: detalle (Solicitudes) -----
+        add_solicitud_row(token, payload, template_local="central_solicitudes_base.xlsx")
 
-    try:
+        # ----- Escribir en Excel: resumen (Deps) -----
         add_deps_row(token, payload)
-    except Exception as e:
-        return f"Se escribió 'Solicitudes' pero falló resumen 'Depositos': {e}", 500
 
-    return render_template("success.html", web_url=web_url, cliente_nombre=cliente_nombre, fecha=fecha_iso)
+        return render_template("success.html",
+                               cliente=cliente_nombre or cliente_id or "(sin cliente)",
+                               fecha=fecha_iso, banco=banco, importe=importe)
+    except Exception as e:
+        return f"Error: {e}", 500
 
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=int(os.getenv("PORT", 5000)), debug=True)
+    # Útil para debug local
+    port = int(os.getenv("PORT", "8080"))
+    app.run(host="0.0.0.0", port=port, debug=True)

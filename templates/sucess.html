@@ -2,22 +2,27 @@
 <html lang="es">
 <head>
   <meta charset="utf-8"/>
-  <title>Guardado</title>
+  <title>Registro guardado</title>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <style>
-    body{font-family:system-ui,Arial,sans-serif;max-width:760px;margin:24px auto;padding:0 16px;}
+    body{font-family:system-ui,Arial,sans-serif;max-width:760px;margin:32px auto;padding:0 16px}
+    .ok{background:#e8f5e9;border:1px solid #c8e6c9;border-radius:12px;padding:16px}
     a{color:#1a73e8;text-decoration:none}
-    .ok{padding:12px;border:1px solid #cfe5cf;background:#effaf0;border-radius:10px;margin-top:12px}
   </style>
 </head>
 <body>
-  <h1>¡Solicitud registrada!</h1>
   <div class="ok">
-    <p>El comprobante se subió correctamente.</p>
-    {% if web_url %}
-      <p>Enlace al archivo: <a href="{{ web_url }}" target="_blank" rel="noopener">Abrir en OneDrive</a></p>
-    {% endif %}
+    <h2>¡Guardado correctamente!</h2>
+    <p>
+      Cliente: <strong>{{ cliente }}</strong><br/>
+      Fecha: <strong>{{ fecha }}</strong><br/>
+      Banco: <strong>{{ banco }}</strong><br/>
+      Importe: <strong>{{ importe }}</strong>
+    </p>
   </div>
-  <p><a href="/">Registrar otro</a> · <a href="https://multisaldo.com.mx" target="_self">regresar a multisaldo</a></p>
+  <p style="margin-top:16px">
+    <a href="/">Capturar otro</a> ·
+    <a href="https://multisaldo.com.mx">regresar a multisaldo</a>
+  </p>
 </body>
 </html>

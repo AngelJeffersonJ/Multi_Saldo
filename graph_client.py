@@ -1,4 +1,3 @@
-# graph_client.py
 import os
 import io
 import time
@@ -6,7 +5,7 @@ import json
 import urllib.parse
 import hashlib
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Iterable
+from typing import Any, Dict, List, Optional
 
 import requests
 import msal
@@ -17,18 +16,13 @@ load_dotenv()
 TENANT_ID = os.getenv("TENANT_ID", "common")
 CLIENT_ID = os.getenv("CLIENT_ID", "")
 
-# -------------------- SCOPES --------------------
-# Permite definir en .env: GRAPH_SCOPES="Files.ReadWrite.All,offline_access,openid,profile,User.Read"
-# --- SCOPES (reemplaza todo este bloque) ---
-# --- SCOPES (reemplaza todo este bloque) ---
+# ------- SCOPES: SIEMPRE LISTA -------
 _ENV_SCOPES = os.getenv("GRAPH_SCOPES", "").strip()
 
 def _normalize_scopes(scopes) -> List[str]:
-    """Convierte scopes a list[str] cueste lo que cueste."""
     if not scopes:
         return []
     if isinstance(scopes, str):
-        # aceptar coma o espacios
         parts = [p.strip() for p in scopes.replace(" ", ",").split(",")]
         scopes_list = [p for p in parts if p]
     elif isinstance(scopes, (set, frozenset, tuple, list)):
@@ -38,15 +32,12 @@ def _normalize_scopes(scopes) -> List[str]:
             scopes_list = [str(p).strip() for p in list(scopes) if str(p).strip()]
         except Exception:
             scopes_list = [str(scopes).strip()]
-
-    # unicidad preservando orden
     seen, out = set(), []
     for s in scopes_list:
         if s and s not in seen:
             seen.add(s); out.append(s)
     return out
 
-# Por defecto (si no defines GRAPH_SCOPES)
 _DEFAULT_SCOPES = [
     "Files.ReadWrite.All",
     "User.Read",
@@ -56,7 +47,6 @@ _DEFAULT_SCOPES = [
 ]
 
 SCOPES: List[str] = _normalize_scopes(_ENV_SCOPES) or list(_DEFAULT_SCOPES)
-
 
 EXCEL_PATH = os.getenv("EXCEL_PATH", "/me/drive/root:/Documentos/resultados/central_solicitudes.xlsx")
 COMPROBANTES_ROOT = os.getenv("COMPROBANTES_ROOT", "/me/drive/root:/Comprobantes")
@@ -74,9 +64,9 @@ DEPS_TABLE = os.getenv("DEPS_TABLE", "Deps")
 
 GRAPH_API = "https://graph.microsoft.com/v1.0"
 
-
 # -------------------- AUTH --------------------
 def _load_cache() -> msal.SerializableTokenCache:
+    os.makedirs(os.path.dirname(TOKEN_CACHE_FILE) or ".", exist_ok=True)
     cache = msal.SerializableTokenCache()
     if os.path.exists(TOKEN_CACHE_FILE):
         with open(TOKEN_CACHE_FILE, "r", encoding="utf-8") as f:
@@ -85,6 +75,7 @@ def _load_cache() -> msal.SerializableTokenCache:
 
 def _save_cache(cache: msal.SerializableTokenCache):
     if cache.has_state_changed:
+        os.makedirs(os.path.dirname(TOKEN_CACHE_FILE) or ".", exist_ok=True)
         with open(TOKEN_CACHE_FILE, "w", encoding="utf-8") as f:
             f.write(cache.serialize())
 
@@ -92,7 +83,11 @@ def get_token() -> str:
     if not CLIENT_ID:
         raise RuntimeError("Falta CLIENT_ID en .env")
 
-    scopes = _normalize_scopes(SCOPES)  # <— SIEMPRE lista aquí
+    scopes = _normalize_scopes(SCOPES)
+    if not scopes:
+        scopes = list(_DEFAULT_SCOPES)
+
+    print(f"[MSAL] Using scopes type={type(scopes).__name__} -> {scopes}")
 
     cache = _load_cache()
     app = msal.PublicClientApplication(
@@ -103,12 +98,12 @@ def get_token() -> str:
 
     accounts = app.get_accounts()
     if accounts:
-        res = app.acquire_token_silent(scopes, account=accounts[0])  # lista
+        res = app.acquire_token_silent(scopes, account=accounts[0])
         if res and "access_token" in res:
             _save_cache(cache)
             return res["access_token"]
 
-    flow = app.initiate_device_flow(scopes=scopes)  # lista
+    flow = app.initiate_device_flow(scopes=scopes)
     if "user_code" not in flow:
         raise RuntimeError(f"No se pudo iniciar device code flow: {flow}")
     print("\n== Autenticación requerida ==\n" + flow["message"])
@@ -123,7 +118,6 @@ def _h(token: str, content_json=True) -> Dict[str, str]:
     if content_json:
         h["Content-Type"] = "application/json"
     return h
-
 
 # -------------------- OneDrive helpers --------------------
 def _get_driveitem_by_path(token: str, path: str) -> Dict[str, Any]:
@@ -160,7 +154,6 @@ def _ensure_path_chain(token: str, root_path: str, chain: List[str]) -> Dict[str
         current_id = _ensure_folder(token, current_id, part)
     return _get_item_json(token, current_id)
 
-
 # -------------------- Upload (simple + sesión) --------------------
 def upload_large_with_session(token: str, folder_item_id: str, final_name: str, fileobj, chunk_size=8*1024*1024):
     create_url = f"{GRAPH_API}/me/drive/items/{folder_item_id}:/{urllib.parse.quote(final_name)}:/createUploadSession"
@@ -183,13 +176,13 @@ def upload_large_with_session(token: str, folder_item_id: str, final_name: str, 
             "Content-Range": f"bytes {start}-{end}/{total}"
         }
         resp = requests.put(upload_url, headers=headers, data=chunk, timeout=300)
-        if resp.status_code in (200, 201):   # terminado
+        if resp.status_code in (200, 201):
             return resp.json()
-        if resp.status_code == 202:          # continuar
+        if resp.status_code == 202:
             start = end + 1
             attempt = 0
             continue
-        if resp.status_code in (429, 503):   # throttle
+        if resp.status_code in (429, 503):
             wait = float(resp.headers.get("Retry-After", "2"))
             time.sleep(wait)
             attempt += 1
@@ -219,7 +212,7 @@ def upload_file_stream(
     h = hashlib.md5((original_filename + str(time.time())).encode("utf-8")).hexdigest()[:8]
     final_name = f"{safe}_{fecha:%Y%m%d_%H%M%S}_{h}{ext.lower()}" if rename_safe else original_filename
 
-    # medir tamaño
+    # tamaño
     file_stream.seek(0, io.SEEK_END)
     size = file_stream.tell()
     file_stream.seek(0)
@@ -233,13 +226,11 @@ def upload_file_stream(
     else:
         return upload_large_with_session(token, folder_id, final_name, file_stream)
 
-
-# -------------------- Excel base local (si no existe) --------------------
+# -------------------- Excel base local --------------------
 def _generate_local_base_excel(path: str):
     from openpyxl import Workbook
     wb = Workbook()
 
-    # Hoja de detalle
     ws = wb.active
     ws.title = WORKSHEET_NAME
     ws.append([
@@ -248,11 +239,9 @@ def _generate_local_base_excel(path: str):
         "observaciones","cliente_id","cliente_nombre","comprobante_url","origen"
     ])
 
-    # Hoja de resumen Deps
     ws2 = wb.create_sheet(DEPS_WORKSHEET)
     ws2.append(["Fecha banco","Cliente","Monto","Movimiento","Ficha","Realizó","Observaciones","Factura"])
 
-    # Hoja de Clientes
     ws3 = wb.create_sheet(CLIENTS_WORKSHEET)
     ws3.append(["cliente_id","cliente_nombre","rfc","razon_social","cfdi","uso_cfdi","direccion","contacto","email","numero_usuario"])
 
@@ -260,12 +249,10 @@ def _generate_local_base_excel(path: str):
 
 # -------------------- Excel (tablas) --------------------
 def _ensure_excel_exists(token: str, template_local: Optional[str] = None) -> Dict[str, Any]:
-    # Si existe:
     try:
         return _get_driveitem_by_path(token, EXCEL_PATH)
     except FileNotFoundError:
         pass
-    # Si no existe: crear local y subir
     if template_local:
         if not os.path.exists(template_local):
             os.makedirs(os.path.dirname(template_local) or ".", exist_ok=True)
@@ -281,7 +268,6 @@ def _ensure_excel_exists(token: str, template_local: Optional[str] = None) -> Di
 
 def _ensure_table_exists(token: str, file_id: str, worksheet_name: str, table_name: str) -> str:
     base = f"{GRAPH_API}/me/drive/items/{file_id}/workbook/worksheets('{urllib.parse.quote(worksheet_name)}')"
-    # listar tablas
     r = requests.get(f"{base}/tables", headers=_h(token), timeout=60)
     if r.status_code != 200:
         raise RuntimeError(f"No se pudieron listar tablas: {r.status_code} {r.text[:200]}")
@@ -289,17 +275,15 @@ def _ensure_table_exists(token: str, file_id: str, worksheet_name: str, table_na
         if t.get("name") == table_name:
             return t["id"]
 
-    # crear tabla sobre usedRange (asume encabezados en fila 1)
     ru = requests.get(f"{base}/usedRange(valuesOnly=true)", headers=_h(token), timeout=60)
     if ru.status_code != 200:
         raise RuntimeError(f"No se pudo obtener usedRange: {ru.status_code} {ru.text[:200]}")
-    address = ru.json().get("address")  # p.ej. Hoja1!A1:P1
+    address = ru.json().get("address")
     body = {"address": address, "hasHeaders": True}
     rc = requests.post(f"{base}/tables", headers=_h(token), json=body, timeout=60)
     if rc.status_code not in (200, 201):
         raise RuntimeError(f"No se pudo crear la tabla: {rc.status_code} {rc.text[:200]}")
     tid = rc.json()["id"]
-    # renombrar
     rn = requests.patch(
         f"{GRAPH_API}/me/drive/items/{file_id}/workbook/tables/{tid}",
         headers=_h(token),
@@ -320,7 +304,7 @@ def append_rows(token: str, file_id: str, table_id: str, rows: List[List[Any]]):
             time.sleep(float(r.headers.get("Retry-After", "2")))
             continue
         raise RuntimeError(f"No se pudieron agregar filas: {r.status_code} {r.text[:200]}")
-    raise RuntimeError(f"No se pudieron agregar filas tras reintentos")
+    raise RuntimeError("No se pudieron agregar filas tras reintentos")
 
 def map_payload_to_row(payload: Dict[str, Any]) -> List[Any]:
     return [
@@ -347,7 +331,6 @@ def ensure_excel_and_table(token: str, template_local: Optional[str] = None):
     table_id = _ensure_table_exists(token, wb_item["id"], WORKSHEET_NAME, TABLE_NAME)
     return wb_item, table_id
 
-
 # -------------------- RESUMEN “Deps” --------------------
 import locale
 try:
@@ -366,13 +349,10 @@ def _fmt_fecha_dd_mmm(fecha_iso: str) -> str:
         return fecha_iso or ""
 
 def map_payload_to_deps_row(payload: Dict[str, Any]) -> List[Any]:
-    # Fecha banco
     fecha_banco = _fmt_fecha_dd_mmm(payload.get("fecha_iso") or "")
-    # Cliente (usa cliente_id; si no hay, cliente_nombre)
     cliente = payload.get("cliente_id") or payload.get("cliente_nombre") or ""
-    # Monto
     importe = str(payload.get("importe") or "").strip()
-    # Movimiento
+
     banco = (payload.get("banco") or "").upper()
     tipo_bbva = (payload.get("tipo_bbva") or "").lower()
     folio = (payload.get("folio") or "").strip()
@@ -381,7 +361,7 @@ def map_payload_to_deps_row(payload: Dict[str, Any]) -> List[Any]:
     producto = (payload.get("producto") or "").lower()
 
     if "tae" in producto:
-        movimiento = ""  # si es TAE, vacío
+        movimiento = ""
     elif banco == "BBVA" and tipo_bbva == "practicaja" and (folio or aut):
         movimiento = f"Folio {folio}" + (f"/ Aut {aut}" if aut else "")
     elif banco == "BBVA" and tipo_bbva == "ventanilla" and folmov:
@@ -391,28 +371,21 @@ def map_payload_to_deps_row(payload: Dict[str, Any]) -> List[Any]:
     else:
         movimiento = "-"
 
-    # Ficha
     forma_pago = (payload.get("forma_pago") or "").lower()
-    ficha = "s c" if forma_pago in ("depósito", "deposito") else (
-        "transfer" if forma_pago == "transferencia" else ""
-    )
+    ficha = "s c" if forma_pago in ("depósito", "deposito") else ("transfer" if forma_pago == "transferencia" else "")
 
-    # Realizó
     realizo = payload.get("realizo") or ""
 
-    # Observaciones
     extra = (payload.get("observaciones") or "").strip()
     if "tae" in producto:
-        observaciones = extra  # para TAE se deja tal cual (suele quedar vacío)
+        observaciones = extra
     else:
         base_obs = ".p/pago DEP PS"
         observaciones = base_obs + (f"  {extra}" if extra else "")
 
-    # Factura  ✅ (corregido)
     factura = "Sí" if payload.get("requiere_factura") else "No"
 
     return [fecha_banco, cliente, importe, movimiento, ficha, realizo, observaciones, factura]
-
 
 def ensure_excel_and_deps_table(token: str):
     wb_item = _ensure_excel_exists(token)
@@ -426,17 +399,12 @@ def add_deps_row(token: str, payload: Dict[str, Any]) -> Dict[str, Any]:
     return {"ok": True, "excel": wb_item.get("name"), "tabla": DEPS_TABLE}
 
 def add_solicitud_row(token: str, payload: Dict[str, Any], template_local: Optional[str] = None):
-    """
-    Asegura el Excel + tabla de detalle y agrega una fila.
-    Si el Excel no existe en OneDrive, sube un template local generado automáticamente.
-    """
     wb_item, table_id = ensure_excel_and_table(token, template_local=template_local)
     row = map_payload_to_row(payload)
     append_rows(token, wb_item["id"], table_id, [row])
     return {"ok": True, "excel": wb_item.get("name"), "tabla": TABLE_NAME}
 
-
-# -------------------- Clientes (cards por número de usuario) --------------------
+# -------------------- Clientes --------------------
 def get_clientes_por_usuario(token: str, numero_usuario: str) -> List[Dict[str, Any]]:
     wb = _get_driveitem_by_path(token, EXCEL_PATH)
     ws_list = requests.get(f"{GRAPH_API}/me/drive/items/{wb['id']}/workbook/worksheets", headers=_h(token), timeout=60)
