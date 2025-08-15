@@ -1,0 +1,28 @@
+services:
+  - type: web
+    name: multisaldo-form
+    env: docker
+    plan: free
+    autoDeploy: true
+    healthCheckPath: /health
+    envVars:
+      - key: TENANT_ID
+        sync: false
+      - key: CLIENT_ID
+        sync: false
+      - key: EXCEL_PATH
+        value: /me/drive/root:/Documentos/resultados/central_solicitudes.xlsx
+      - key: COMPROBANTES_ROOT
+        value: /me/drive/root:/Comprobantes
+      - key: WORKSHEET_NAME
+        value: Hoja1
+      - key: TABLE_NAME
+        value: Solicitudes
+      - key: DEPS_WORKSHEET
+        value: Depositos
+      - key: DEPS_TABLE
+        value: Deps
+      - key: CLIENTS_WORKSHEET
+        value: Clientes
+      - key: CLIENTS_TABLE
+        value: Clientes
