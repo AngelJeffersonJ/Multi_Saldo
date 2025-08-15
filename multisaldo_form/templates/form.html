@@ -1,0 +1,289 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8"/>
+  <title>Registro de depósito/transferencia</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <style>
+    body{font-family:system-ui,Arial,sans-serif;max-width:880px;margin:24px auto;padding:0 16px;}
+    fieldset{border:1px solid #ddd;padding:12px;border-radius:8px;margin-bottom:16px;}
+    legend{padding:0 8px;font-weight:600;}
+    .row{display:flex;gap:16px;flex-wrap:wrap}
+    .col{flex:1 1 260px}
+    .cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:12px}
+    .card{border:1px solid #ddd;border-radius:12px;padding:12px}
+    .card input[type="radio"]{transform:scale(1.2);margin-right:8px}
+    label{display:block;margin:6px 0 4px}
+    input[type="text"], input[type="number"], input[type="date"]{width:100%;padding:8px;border:1px solid #ccc;border-radius:8px}
+    input[type="file"]{margin-top:4px}
+    .hint{color:#666;font-size:12px}
+    .muted{color:#777}
+    .hidden{display:none}
+    button{background:#1a73e8;color:#fff;border:none;padding:10px 16px;border-radius:10px;cursor:pointer}
+    button:hover{opacity:.92}
+    a{color:#1a73e8;text-decoration:none}
+  </style>
+</head>
+<body>
+  <h1>Registrar depósito / transferencia</h1>
+
+  <form action="/submit" method="post" enctype="multipart/form-data" id="mainForm">
+    <div class="row">
+      <div class="col">
+        <label>Fecha</label>
+        <input type="date" name="fecha_iso" id="fecha_iso">
+      </div>
+      <div class="col">
+        <label>Banco</label>
+        <div>
+          <label><input type="radio" name="banco" value="BBVA" required> BBVA</label>
+          <label><input type="radio" name="banco" value="Banorte"> Banorte</label>
+          <label><input type="radio" name="banco" value="Azteca"> Azteca</label>
+          <label><input type="radio" name="banco" value="Scotiabank"> Scotiabank</label>
+          <label><input type="radio" name="banco" value="Santander"> Santander</label>
+        </div>
+      </div>
+      <div class="col">
+        <label>Forma de pago</label>
+        <div>
+          <label><input type="radio" name="forma_pago" value="Depósito" required> Depósito</label>
+          <label><input type="radio" name="forma_pago" value="Transferencia"> Transferencia</label>
+        </div>
+      </div>
+    </div>
+
+    <fieldset>
+      <legend>Producto e Importe</legend>
+      <div>
+        <label>Producto</label>
+        <label><input type="radio" name="producto" value="Pago de servicios" required> Pago de servicios</label>
+        <label><input type="radio" name="producto" value="TAE"> TAE</label>
+      </div>
+      <div class="col" style="margin-top:8px;">
+        <label>Importe</label>
+        <input type="text" name="importe" placeholder="$0.00" pattern="^[\\$\\s0-9\\.,]+$" required>
+        <div class="hint">Ejemplo: $1,234.56</div>
+      </div>
+    </fieldset>
+
+    <fieldset id="bbvaTipoBox" class="hidden">
+      <legend>Tipo de comprobante BBVA</legend>
+      <label><input type="radio" name="tipo_bbva" value="practicaja"> Practicaja</label>
+      <label><input type="radio" name="tipo_bbva" value="ventanilla"> Ventanilla</label>
+    </fieldset>
+
+    <fieldset id="foliosBox">
+      <legend>Folio / Autorización</legend>
+      <div id="otrosBancosBox">
+        <label>Folio / Referencia (otros bancos)</label>
+        <input type="text" name="folio">
+      </div>
+
+      <div id="bbvaPracticajaBox" class="hidden">
+        <div class="row">
+          <div class="col">
+            <label>Folio (solo números)</label>
+            <input type="text" name="autoclear_folio" pattern="^\\d*$" data-bind="folio">
+          </div>
+          <div class="col">
+            <label>Autorización (solo números)</label>
+            <input type="text" name="autoclear_aut" pattern="^\\d*$" data-bind="autorizacion">
+          </div>
+        </div>
+      </div>
+
+      <div id="bbvaVentanillaBox" class="hidden">
+        <label>Folio o Movimiento (solo números)</label>
+        <input type="text" name="autoclear_folmov" pattern="^\\d*$" data-bind="folio_movimiento">
+        <div class="hint">Si ventanilla, solo llena este campo y deja Autorización vacío.</div>
+      </div>
+
+      <div class="hint">Aquí irá la imagen de ejemplo del folio (pendiente de diseño).</div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Usuario y Cliente</legend>
+      <div class="row">
+        <div class="col">
+          <label>Número de usuario</label>
+          <input type="text" id="numero_usuario" name="numero_usuario" placeholder="15333" pattern="^\\d+$" required>
+        </div>
+        <div class="col">
+          <label>Requiere factura</label>
+          <input type="checkbox" name="requiere_factura">
+        </div>
+      </div>
+      <div class="row">
+        <div class="col">
+          <label>Realizó (quién hizo el depósito)</label>
+          <input type="text" name="realizo" placeholder="Nombre de quien depositó">
+        </div>
+      </div>
+      <label>Observaciones</label>
+      <input type="text" name="observaciones" placeholder="Opcional">
+
+      <div style="margin-top:8px;">
+        <div class="muted">Clientes disponibles para este usuario:</div>
+        <div id="clientesCards" class="cards"></div>
+        <input type="hidden" name="cliente_id" id="cliente_id">
+        <input type="hidden" name="cliente_nombre" id="cliente_nombre">
+        <div id="clientesMsg" class="hint"></div>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Comprobante</legend>
+      <input type="file" name="comprobante" accept="image/*,application/pdf" required>
+    </fieldset>
+
+    <div class="row" style="align-items:center; gap:12px;">
+      <button type="submit">Guardar</button>
+      <a href="https://multisaldo.com.mx" target="_self">regresar a multisaldo</a>
+    </div>
+  </form>
+
+  <script>
+    // fecha hoy por defecto
+    (function(){
+      const f = document.getElementById('fecha_iso');
+      const today = new Date();
+      f.value = today.toISOString().slice(0,10);
+    })();
+
+    const bancoRadios = document.querySelectorAll('input[name="banco"]');
+    const tipoBBVARadios = document.querySelectorAll('input[name="tipo_bbva"]');
+    const productoRadios = document.querySelectorAll('input[name="producto"]');
+
+    const tipoBBVABox = document.getElementById('bbvaTipoBox');
+    const otrosBancosBox = document.getElementById('otrosBancosBox');
+    const bbvaPractiBox = document.getElementById('bbvaPracticajaBox');
+    const bbvaVentanillaBox = document.getElementById('bbvaVentanillaBox');
+    const foliosBox = document.getElementById('foliosBox');
+
+    function clearFolioFields() {
+      // inputs especiales con data-bind
+      document.querySelectorAll('[data-bind]').forEach(el => el.value = '');
+      // los name "folio"/"autorizacion"/"folio_movimiento" reales los enviamos con hidden si hace falta
+      const ensureHidden = (name) => {
+        if (!document.querySelector(`input[name="${name}"]`)) {
+          const h = document.createElement('input');
+          h.type = 'hidden'; h.name = name; h.value = '';
+          document.getElementById('mainForm').appendChild(h);
+        }
+      };
+      ensureHidden('folio'); ensureHidden('autorizacion'); ensureHidden('folio_movimiento');
+    }
+
+    function toggleBankUI() {
+      const bancoSel = document.querySelector('input[name="banco"]:checked');
+      const productoSel = document.querySelector('input[name="producto"]:checked');
+      const banco = bancoSel ? bancoSel.value : "";
+      const producto = productoSel ? productoSel.value : "";
+
+      if (producto === "TAE") {
+        foliosBox.classList.add('hidden');
+        tipoBBVABox.classList.add('hidden');
+        bbvaPractiBox.classList.add('hidden');
+        bbvaVentanillaBox.classList.add('hidden');
+        otrosBancosBox.classList.add('hidden');
+        clearFolioFields();
+        return;
+      }
+
+      foliosBox.classList.remove('hidden');
+
+      if (banco === "BBVA") {
+        tipoBBVABox.classList.remove('hidden');
+        otrosBancosBox.classList.add('hidden');
+      } else {
+        tipoBBVABox.classList.add('hidden');
+        bbvaPractiBox.classList.add('hidden');
+        bbvaVentanillaBox.classList.add('hidden');
+        otrosBancosBox.classList.remove('hidden');
+      }
+    }
+
+    function toggleBBVAType() {
+      const t = document.querySelector('input[name="tipo_bbva"]:checked');
+      const tipo = t ? t.value : "";
+      const productoSel = document.querySelector('input[name="producto"]:checked');
+      const producto = productoSel ? productoSel.value : "";
+
+      if (producto === "TAE") {
+        bbvaPractiBox.classList.add('hidden');
+        bbvaVentanillaBox.classList.add('hidden');
+        return;
+      }
+
+      if (tipo === "practicaja") {
+        bbvaPractiBox.classList.remove('hidden');
+        bbvaVentanillaBox.classList.add('hidden');
+      } else if (tipo === "ventanilla") {
+        bbvaPractiBox.classList.add('hidden');
+        bbvaVentanillaBox.classList.remove('hidden');
+      } else {
+        bbvaPractiBox.classList.add('hidden');
+        bbvaVentanillaBox.classList.add('hidden');
+      }
+    }
+
+    bancoRadios.forEach(r => r.addEventListener('change', toggleBankUI));
+    tipoBBVARadios.forEach(r => r.addEventListener('change', toggleBBVAType));
+    productoRadios.forEach(r => r.addEventListener('change', () => { toggleBankUI(); toggleBBVAType(); }));
+
+    // clientes
+    const numUsuario = document.getElementById('numero_usuario');
+    const cardsWrap = document.getElementById('clientesCards');
+    const clienteIdInput = document.getElementById('cliente_id');
+    const clienteNombreInput = document.getElementById('cliente_nombre');
+    const clientesMsg = document.getElementById('clientesMsg');
+
+    async function fetchClientes() {
+      const n = numUsuario.value.trim();
+      cardsWrap.innerHTML = "";
+      clienteIdInput.value = "";
+      clienteNombreInput.value = "";
+      clientesMsg.textContent = "";
+      if (!n) return;
+      try {
+        const res = await fetch(`/api/clientes?usuario=${encodeURIComponent(n)}`);
+        const data = await res.json();
+        if (!data.ok) { clientesMsg.textContent = "No se pudieron obtener clientes."; return; }
+        const items = data.items || [];
+        if (items.length === 0) {
+          clientesMsg.textContent = "No hay clientes registrados para este usuario. Espera a que los registremos.";
+          return;
+        }
+        items.forEach((it, i) => {
+          const div = document.createElement('div');
+          div.className = 'card';
+          div.innerHTML = `
+            <label style="display:flex;gap:8px;align-items:start;cursor:pointer;">
+              <input type="radio" name="sel_cliente" value="${i}">
+              <div>
+                <div><strong>${(it.cliente_nombre || '(sin nombre)')}</strong></div>
+                <div class="hint">ID: ${(it.cliente_id || '(sin id)')}</div>
+                ${it.rfc ? `<div class="hint">RFC: ${it.rfc}</div>` : ''}
+              </div>
+            </label>`;
+          cardsWrap.appendChild(div);
+        });
+        cardsWrap.addEventListener('change', (ev) => {
+          const sel = document.querySelector('input[name="sel_cliente"]:checked');
+          if (!sel) return;
+          const idx = parseInt(sel.value, 10);
+          const it = items[idx];
+          clienteIdInput.value = it.cliente_id || '';
+          clienteNombreInput.value = it.cliente_nombre || '';
+        }, { once: true });
+      } catch {
+        clientesMsg.textContent = "Error de red al consultar clientes.";
+      }
+    }
+    numUsuario.addEventListener('blur', fetchClientes);
+
+    // estado inicial
+    toggleBankUI(); toggleBBVAType();
+  </script>
+</body>
+</html>
