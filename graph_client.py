@@ -6,7 +6,7 @@ import json
 import urllib.parse
 import hashlib
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Iterable
 
 import requests
 import msal
@@ -16,7 +16,40 @@ load_dotenv()
 
 TENANT_ID = os.getenv("TENANT_ID", "common")
 CLIENT_ID = os.getenv("CLIENT_ID", "")
-SCOPES = ["Files.ReadWrite.All", "offline_access"]
+
+# -------------------- SCOPES --------------------
+# Permite definir en .env: GRAPH_SCOPES="Files.ReadWrite.All,offline_access,openid,profile,User.Read"
+_ENV_SCOPES = os.getenv("GRAPH_SCOPES", "").strip()
+
+
+def _to_scope_list(values: Optional[Iterable]) -> List[str]:
+    """
+    Convierte cualquier cosa (str CSV, lista, tupla, set, frozenset) a list[str].
+    Elimina vacíos y recorta espacios.
+    """
+    if not values:
+        return []
+    if isinstance(values, str):
+        parts = [p.strip() for p in values.split(",")]
+        return [p for p in parts if p]
+    if isinstance(values, (set, frozenset, tuple, list)):
+        return [str(p).strip() for p in list(values) if str(p).strip()]
+    # iterable genérico
+    try:
+        return [str(p).strip() for p in list(values) if str(p).strip()]
+    except Exception:
+        return [str(values).strip()]
+
+# Scopes por defecto (válidos para OneDrive + login interactivo)
+_DEFAULT_SCOPES = [
+    "Files.ReadWrite.All",
+    "User.Read",
+    "offline_access",
+    "openid",
+    "profile",
+]
+
+SCOPES: List[str] = _to_scope_list(_ENV_SCOPES) or list(_DEFAULT_SCOPES)
 
 EXCEL_PATH = os.getenv("EXCEL_PATH", "/me/drive/root:/Documentos/resultados/central_solicitudes.xlsx")
 COMPROBANTES_ROOT = os.getenv("COMPROBANTES_ROOT", "/me/drive/root:/Comprobantes")
@@ -52,22 +85,26 @@ def get_token() -> str:
     if not CLIENT_ID:
         raise RuntimeError("Falta CLIENT_ID en .env")
 
+    scopes = list(SCOPES)  # ← asegura lista
+
     cache = _load_cache()
     app = msal.PublicClientApplication(
         client_id=CLIENT_ID,
         authority=f"https://login.microsoftonline.com/{TENANT_ID}",
         token_cache=cache,
     )
+    # 1) silencioso si hay cuenta
     accounts = app.get_accounts()
     if accounts:
-        res = app.acquire_token_silent(SCOPES, account=accounts[0])
+        res = app.acquire_token_silent(scopes, account=accounts[0])
         if res and "access_token" in res:
             _save_cache(cache)
             return res["access_token"]
 
-    flow = app.initiate_device_flow(scopes=SCOPES)
+    # 2) device code flow
+    flow = app.initiate_device_flow(scopes=scopes)  # ← lista, no set
     if "user_code" not in flow:
-        raise RuntimeError("No se pudo iniciar device code flow.")
+        raise RuntimeError(f"No se pudo iniciar device code flow: {flow}")
     print("\n== Autenticación requerida ==\n" + flow["message"])
     res = app.acquire_token_by_device_flow(flow)
     if "access_token" not in res:
@@ -350,23 +387,26 @@ def map_payload_to_deps_row(payload: Dict[str, Any]) -> List[Any]:
 
     # Ficha
     forma_pago = (payload.get("forma_pago") or "").lower()
-    ficha = "s c" if forma_pago in ("depósito", "deposito") else ("transfer" if forma_pago == "transferencia" else "")
+    ficha = "s c" if forma_pago in ("depósito", "deposito") else (
+        "transfer" if forma_pago == "transferencia" else ""
+    )
 
     # Realizó
     realizo = payload.get("realizo") or ""
 
-    # Observaciones (si es TAE → vacío; si es Pago de Servicios → texto base)
+    # Observaciones
     extra = (payload.get("observaciones") or "").strip()
     if "tae" in producto:
-        observaciones = extra  # por defecto vacío; si capturan algo manual se respeta
+        observaciones = extra  # para TAE se deja tal cual (suele quedar vacío)
     else:
         base_obs = ".p/pago DEP PS"
         observaciones = base_obs + (f"  {extra}" if extra else "")
 
-    # Factura
+    # Factura  ✅ (corregido)
     factura = "Sí" if payload.get("requiere_factura") else "No"
 
     return [fecha_banco, cliente, importe, movimiento, ficha, realizo, observaciones, factura]
+
 
 def ensure_excel_and_deps_table(token: str):
     wb_item = _ensure_excel_exists(token)
