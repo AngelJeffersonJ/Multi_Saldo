@@ -1,119 +1,152 @@
 import os
-from flask import Flask, request, render_template, jsonify
-from dotenv import load_dotenv
+from datetime import datetime
+from flask import Flask, render_template, request, jsonify
 
-load_dotenv()
-
-from graph_client import (
-    get_token, has_valid_token, start_device_auth,
-    upload_file_stream, add_solicitud_row, add_deps_row,
-    get_clientes_por_usuario,
-)
+import graph_client
 
 app = Flask(__name__)
-app.config["MAX_CONTENT_LENGTH"] = 35 * 1024 * 1024  # 35 MB por archivo
 
-@app.get("/healthz")
-def healthz():
-    return "ok", 200
+# --------- Rutas de autenticación ---------
+@app.get("/auth/start")
+def auth_start():
+    """
+    Dispara Device Code Flow; se queda esperando a que completes el login
+    (la página de Microsoft te dirá 'Ya puede cerrar esta ventana').
+    """
+    try:
+        graph_client.get_token(interactive=True)
+        return "<h3>Listo ✔</h3><p>Vuelve a la app y pulsa <b>Revisar estado</b>.</p>"
+    except Exception as e:
+        return f"Error iniciando autenticación: {e}", 500
 
+
+@app.get("/auth/status")
+def auth_status():
+    return graph_client.auth_status()
+
+
+@app.get("/auth/clear")
+def auth_clear():
+    path = graph_client.TOKEN_CACHE_FILE
+    try:
+        if os.path.exists(path):
+            os.remove(path)
+        return {"ok": True, "cleared": True, "path": path}
+    except Exception as e:
+        return {"ok": False, "error": str(e), "path": path}, 500
+
+
+# --------- API de clientes (cards por número de usuario) ---------
+@app.get("/api/clientes")
+def api_clientes():
+    numero = (request.args.get("usuario") or "").strip()
+    if not numero:
+        return jsonify({"ok": True, "items": []})
+    try:
+        token = graph_client.get_token(interactive=False)
+    except Exception:
+        return jsonify({"ok": False, "error": "No autenticado con OneDrive"})
+    items = graph_client.get_clientes_por_usuario(token, numero)
+    return jsonify({"ok": True, "items": items})
+
+
+# --------- Formulario ---------
 @app.get("/")
 def index():
     return render_template("form.html")
 
-@app.get("/auth/status")
-def auth_status():
-    try:
-        return jsonify({"ok": has_valid_token()})
-    except Exception:
-        return jsonify({"ok": False})
-
-@app.get("/auth/start")
-def auth_start():
-    try:
-        msg = start_device_auth()
-        html = f"""
-        <h2>Conectar OneDrive</h2>
-        <p>1) Abre <a href="https://microsoft.com/devicelogin" target="_blank">https://microsoft.com/devicelogin</a></p>
-        <p>2) Pega el código que verás a continuación y completa el inicio de sesión con tu cuenta.</p>
-        <hr>
-        <pre style="white-space:pre-wrap;border:1px solid #ddd;padding:10px;border-radius:8px;">{msg}</pre>
-        <p>3) Vuelve al formulario y pulsa <b>Revisar estado</b>.</p>
-        <p><a href="/">Volver al formulario</a></p>
-        """
-        return html
-    except Exception as e:
-        return f"Error iniciando autenticación: {e}", 500
-
-@app.get("/api/clientes")
-def api_clientes():
-    usuario = (request.args.get("usuario") or "").strip()
-    if not usuario:
-        return jsonify({"ok": True, "items": []})
-    try:
-        token = get_token()  # requiere sesión
-    except Exception:
-        # Sin sesión no podemos leer el Excel → devuelve vacío (el banner ya te avisa)
-        return jsonify({"ok": True, "items": []})
-
-    try:
-        items = get_clientes_por_usuario(token, usuario)
-        return jsonify({"ok": True, "items": items})
-    except Exception as e:
-        return jsonify({"ok": False, "error": str(e)}), 500
 
 @app.post("/submit")
 def submit():
-    form = request.form
-    files = request.files
+    # Verificar token
+    try:
+        token = graph_client.get_token(interactive=False)
+    except Exception as e:
+        return (f"<h3>OneDrive no conectado</h3>"
+                f"<p>Debes autenticarte: <a href='/auth/start'>/auth/start</a></p>"
+                f"<pre>{e}</pre>"), 401
 
+    # Recibir datos del form
+    f = request.form
+    producto = f.get("producto") or ""
+    banco = f.get("banco") or ""
+    tipo_bbva = f.get("tipo_bbva") or ""
+    forma_pago = f.get("forma_pago") or ""
+    numero_usuario = (f.get("numero_usuario") or "").strip()
+    requiere_factura = True if f.get("requiere_factura") else False
+
+    # Folios (según UI)
+    folio = f.get("folio") or ""
+    autorizacion = f.get("autorizacion") or ""
+    folio_movimiento = f.get("folio_movimiento") or ""
+
+    # Si BBVA practicaja, vienen en los campos con data-bind (autoclear_*)
+    folio = f.get("autoclear_folio", folio)
+    autorizacion = f.get("autoclear_aut", autorizacion)
+    folio_movimiento = f.get("autoclear_folmov", folio_movimiento)
+
+    # Si TAE, ocultamos y enviamos vacíos folios
+    if producto.lower() == "tae":
+        folio = ""
+        autorizacion = ""
+        folio_movimiento = ""
+
+    importe = (f.get("importe") or "").strip()
+    realizo = f.get("realizo") or ""
+    observaciones = f.get("observaciones") or ""
+    cliente_id = f.get("cliente_id") or ""
+    cliente_nombre = f.get("cliente_nombre") or ""
+
+    # Fecha
+    fecha_iso = f.get("fecha_iso") or datetime.now().strftime("%Y-%m-%d")
+
+    # Archivo
+    file = request.files.get("comprobante")
+    if not file:
+        return "Falta comprobante.", 400
+
+    # Subir a OneDrive
+    uploaded = graph_client.upload_file_stream(
+        token=token,
+        file_stream=file.stream,
+        original_filename=file.filename,
+        cliente_nombre=cliente_nombre or cliente_id or "SIN_CLIENTE",
+        fecha=datetime.fromisoformat(fecha_iso) if fecha_iso else None,
+        rename_safe=True,
+    )
+    comprobante_url = uploaded.get("webUrl") or uploaded.get("@microsoft.graph.downloadUrl", "")
+
+    # Armar payload y guardar en Excel (detalle + resumen)
     payload = {
-        "fecha_iso": form.get("fecha_iso") or "",
-        "banco": form.get("banco") or "",
-        "forma_pago": form.get("forma_pago") or "",
-        "producto": form.get("producto") or "",
-        "importe": form.get("importe") or "",
-        "tipo_bbva": form.get("tipo_bbva") or "",
-        "folio": form.get("folio") or form.get("autoclear_folio") or "",
-        "autorizacion": form.get("autorizacion") or form.get("autoclear_aut") or "",
-        "folio_movimiento": form.get("folio_movimiento") or form.get("autoclear_folmov") or "",
-        "numero_usuario": form.get("numero_usuario") or "",
-        "requiere_factura": bool(form.get("requiere_factura")),
-        "observaciones": form.get("observaciones") or "",
-        "realizo": form.get("realizo") or "",
-        "cliente_id": form.get("cliente_id") or "",
-        "cliente_nombre": form.get("cliente_nombre") or "",
+        "fecha_iso": fecha_iso,
+        "banco": banco,
+        "forma_pago": forma_pago,
+        "producto": producto,
+        "importe": importe,
+        "tipo_bbva": tipo_bbva,
+        "folio": folio,
+        "autorizacion": autorizacion,
+        "folio_movimiento": folio_movimiento,
+        "numero_usuario": numero_usuario,
+        "requiere_factura": requiere_factura,
+        "observaciones": observaciones,
+        "cliente_id": cliente_id,
+        "cliente_nombre": cliente_nombre,
+        "realizo": realizo,
+        "comprobante_url": comprobante_url,
         "origen": "formulario",
     }
 
-    # 1) token
-    try:
-        token = get_token()
-    except Exception:
-        return (
-            "Autenticación requerida con OneDrive. Abre <a href=\"/auth/start\">/auth/start</a>, completa el login y vuelve a intentar.",
-            401,
-        )
+    # Si el Excel central no existe la primera vez, se sube un template local en /data
+    template_local = "/data/central_base.xlsx"
+    res1 = graph_client.add_solicitud_row(token, payload, template_local=template_local)
+    res2 = graph_client.add_deps_row(token, payload)
 
-    # 2) subir comprobante
-    comp = files.get("comprobante")
-    if comp and comp.filename:
-        up = upload_file_stream(
-            token=token,
-            file_stream=comp.stream,
-            original_filename=comp.filename,
-            cliente_nombre=payload.get("cliente_nombre") or payload.get("cliente_id") or "SIN_CLIENTE",
-        )
-        payload["comprobante_url"] = up.get("@microsoft.graph.downloadUrl") or up.get("webUrl") or ""
-    else:
-        payload["comprobante_url"] = ""
+    return render_template("success.html",
+                           comprobante_url=comprobante_url,
+                           res_detalle=res1, res_resumen=res2, payload=payload)
 
-    # 3) escribir excel (detalle + deps)
-    add_solicitud_row(token, payload, template_local="data/central_template.xlsx")
-    add_deps_row(token, payload)
-
-    return render_template("success.html", payload=payload)
 
 if __name__ == "__main__":
-    # Para pruebas locales:  flask run  o  python app.py
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", "5000")))
+    # Para correr local: python app.py
+    app.run(host="0.0.0.0", port=int(os.getenv("PORT", "8080")), debug=True)

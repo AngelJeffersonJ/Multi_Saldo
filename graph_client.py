@@ -4,7 +4,6 @@ import time
 import json
 import urllib.parse
 import hashlib
-import threading
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
@@ -17,10 +16,32 @@ load_dotenv()
 TENANT_ID = os.getenv("TENANT_ID", "common")
 CLIENT_ID = os.getenv("CLIENT_ID", "")
 
+# ----- Scopes saneados -----
 RAW_SCOPES = os.getenv("GRAPH_SCOPES", "Files.ReadWrite.All,User.Read")
-SCOPES = [s.strip() for s in RAW_SCOPES.split(",") if s.strip()]
 
-EXCEL_PATH = os.getenv("EXCEL_PATH", "/me/drive/root:/Documentos/resultados/central_solicitudes.xlsx")
+def _parse_scopes(raw: str):
+    raw = raw.replace(" ", ",")
+    toks = []
+    for part in raw.split(","):
+        t = part.strip().strip("[](){}\"'")
+        if t and "=" not in t:
+            toks.append(t)
+    blocked = {"openid", "profile", "offline_access"}
+    cleaned = [t for t in toks if t.lower() not in blocked]
+    if not cleaned:
+        cleaned = ["Files.ReadWrite.All", "User.Read"]
+    out = []
+    for t in cleaned:
+        if t not in out:
+            out.append(t)
+    return out
+
+SCOPES = _parse_scopes(RAW_SCOPES)
+
+EXCEL_PATH = os.getenv(
+    "EXCEL_PATH",
+    "/me/drive/root:/Documentos/resultados/central_solicitudes.xlsx"
+)
 COMPROBANTES_ROOT = os.getenv("COMPROBANTES_ROOT", "/me/drive/root:/Comprobantes")
 
 TOKEN_CACHE_FILE = os.getenv("TOKEN_CACHE_FILE", "msal_token_cache.json")
@@ -39,10 +60,14 @@ GRAPH_API = "https://graph.microsoft.com/v1.0"
 
 # -------------------- AUTH --------------------
 def _load_cache() -> msal.SerializableTokenCache:
+    os.makedirs(os.path.dirname(TOKEN_CACHE_FILE) or ".", exist_ok=True)
     cache = msal.SerializableTokenCache()
-    if os.path.exists(TOKEN_CACHE_FILE):
-        with open(TOKEN_CACHE_FILE, "r", encoding="utf-8") as f:
-            cache.deserialize(f.read())
+    if os.path.exists(TOKEN_CACHE_FILE) and os.path.getsize(TOKEN_CACHE_FILE) > 5:
+        try:
+            with open(TOKEN_CACHE_FILE, "r", encoding="utf-8") as f:
+                cache.deserialize(f.read())
+        except Exception:
+            pass
     return cache
 
 def _save_cache(cache: msal.SerializableTokenCache):
@@ -51,87 +76,57 @@ def _save_cache(cache: msal.SerializableTokenCache):
         with open(TOKEN_CACHE_FILE, "w", encoding="utf-8") as f:
             f.write(cache.serialize())
 
-def _new_app(cache: Optional[msal.SerializableTokenCache] = None) -> msal.PublicClientApplication:
-    return msal.PublicClientApplication(
+def get_token(interactive: bool = True) -> str:
+    if not CLIENT_ID:
+        raise RuntimeError("Falta CLIENT_ID en .env")
+
+    cache = _load_cache()
+    app = msal.PublicClientApplication(
         client_id=CLIENT_ID,
         authority=f"https://login.microsoftonline.com/{TENANT_ID}",
-        token_cache=cache or _load_cache(),
+        token_cache=cache,
     )
-
-def has_valid_token() -> bool:
-    if not CLIENT_ID:
-        return False
-    cache = _load_cache()
-    app = _new_app(cache)
-    accts = app.get_accounts()
-    if not accts:
-        return False
-    res = app.acquire_token_silent(SCOPES, account=accts[0])
-    return bool(res and "access_token" in res)
-
-def get_token() -> str:
-    if not CLIENT_ID:
-        raise RuntimeError("Falta CLIENT_ID en .env/variables")
-    cache = _load_cache()
-    app = _new_app(cache)
-    accts = app.get_accounts()
-    if accts:
-        res = app.acquire_token_silent(SCOPES, account=accts[0])
+    accounts = app.get_accounts()
+    if accounts:
+        res = app.acquire_token_silent(SCOPES, account=accounts[0])
         if res and "access_token" in res:
             _save_cache(cache)
             return res["access_token"]
-    raise PermissionError("AUTH_REQUIRED")
 
+    if not interactive:
+        raise RuntimeError("No hay token en cache")
 
-def _parse_scopes(raw: str):
-    # Acepta coma o espacio como separador, limpia comillas/corchetes y deduplica
-    tokens = []
-    raw = raw.replace(" ", ",")
-    for part in raw.split(","):
-        t = part.strip().strip("[](){}\"'")
-        if t:
-            tokens.append(t)
-
-    # Nunca pedir OIDC en device code (no son necesarios y causan problemas en algunos entornos)
-    OIDC_BLOCKED = {"openid", "profile", "offline_access"}
-    cleaned = [t for t in tokens if t.lower() not in OIDC_BLOCKED]
-
-    # Valor por defecto seguro si alguien borra todo
-    if not cleaned:
-        cleaned = ["Files.ReadWrite.All", "User.Read"]
-
-    # Devolver como LISTA (nunca set/frozenset) y sin duplicados preservando orden
-    out = []
-    for t in cleaned:
-        if t not in out:
-            out.append(t)
-    return out
-
-SCOPES = _parse_scopes(RAW_SCOPES)
-
-def start_device_auth() -> str:
-    cache = _load_cache()
-    app = _new_app(cache)
     flow = app.initiate_device_flow(scopes=SCOPES)
     if "user_code" not in flow:
-        raise RuntimeError("No se pudo iniciar device code flow")
+        raise RuntimeError("No se pudo iniciar device code flow.")
+    # Mostrar instrucciones en /auth/start (la vista se queda bloqueando)
+    res = app.acquire_token_by_device_flow(flow)
+    if "access_token" not in res:
+        raise RuntimeError(f"Fallo autenticación: {res.get('error')} - {res.get('error_description')}")
+    _save_cache(cache)
+    return res["access_token"]
 
-    def _worker():
-        try:
-            res = app.acquire_token_by_device_flow(flow)
-            if "access_token" in res:
-                _save_cache(cache)
-        except Exception:
-            pass
-
-    threading.Thread(target=_worker, daemon=True).start()
-    return flow.get("message") or "Abre https://microsoft.com/devicelogin y escribe el código mostrado."
-
-def _h(token: str, content_json=True) -> Dict[str, str]:
+def _h(token: str, content_json: bool = True) -> Dict[str, str]:
     h = {"Authorization": f"Bearer {token}"}
     if content_json:
         h["Content-Type"] = "application/json"
     return h
+
+def cache_info():
+    path = TOKEN_CACHE_FILE
+    exists = os.path.exists(path)
+    size = os.path.getsize(path) if exists else 0
+    return {"path": path, "exists": exists, "size": size, "scopes": SCOPES}
+
+def auth_status() -> Dict[str, Any]:
+    info = cache_info()
+    try:
+        token = get_token(interactive=False)
+        r = requests.get(f"{GRAPH_API}/me/drive/root", headers=_h(token, False), timeout=20)
+        ok = r.status_code == 200
+        return {"ok": ok, "detail": r.status_code, "cache": info}
+    except Exception as e:
+        return {"ok": False, "detail": str(e), "cache": info}
 
 
 # -------------------- OneDrive helpers --------------------
@@ -192,9 +187,9 @@ def upload_large_with_session(token: str, folder_item_id: str, final_name: str, 
             "Content-Range": f"bytes {start}-{end}/{total}"
         }
         resp = requests.put(upload_url, headers=headers, data=chunk, timeout=300)
-        if resp.status_code in (200, 201):
+        if resp.status_code in (200, 201):   # terminado
             return resp.json()
-        if resp.status_code == 202:
+        if resp.status_code == 202:          # continuar
             start = end + 1
             attempt = 0
             continue
@@ -248,7 +243,7 @@ def _generate_local_base_excel(path: str):
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
     wb = Workbook()
 
-    # Detalle
+    # Hoja de detalle
     ws = wb.active
     ws.title = WORKSHEET_NAME
     ws.append([
@@ -257,11 +252,11 @@ def _generate_local_base_excel(path: str):
         "observaciones","cliente_id","cliente_nombre","comprobante_url","origen"
     ])
 
-    # Resumen Deps
+    # Hoja de resumen Deps
     ws2 = wb.create_sheet(DEPS_WORKSHEET)
     ws2.append(["Fecha banco","Cliente","Monto","Movimiento","Ficha","Realizó","Observaciones","Factura"])
 
-    # Clientes
+    # Hoja de Clientes
     ws3 = wb.create_sheet(CLIENTS_WORKSHEET)
     ws3.append(["cliente_id","cliente_nombre","rfc","razon_social","cfdi","uso_cfdi","direccion","contacto","email","numero_usuario"])
 
@@ -284,8 +279,7 @@ def _ensure_excel_exists(token: str, template_local: Optional[str] = None) -> Di
         if r.status_code not in (200, 201):
             raise RuntimeError(f"No se pudo subir el Excel base: {r.status_code} {r.text[:200]}")
         return r.json()
-
-    raise FileNotFoundError("No existe el Excel central y no se proporcionó template_local.")
+    raise FileNotFoundError("No existe el Excel central en OneDrive y no se proporcionó template_local.")
 
 def _ensure_table_exists(token: str, file_id: str, worksheet_name: str, table_name: str) -> str:
     base = f"{GRAPH_API}/me/drive/items/{file_id}/workbook/worksheets('{urllib.parse.quote(worksheet_name)}')"
@@ -372,13 +366,10 @@ def _fmt_fecha_dd_mmm(fecha_iso: str) -> str:
         return fecha_iso or ""
 
 def map_payload_to_deps_row(payload: Dict[str, Any]) -> List[Any]:
-    # Fecha banco
     fecha_banco = _fmt_fecha_dd_mmm(payload.get("fecha_iso") or "")
-    # Cliente
     cliente = payload.get("cliente_id") or payload.get("cliente_nombre") or ""
-    # Monto
     importe = str(payload.get("importe") or "").strip()
-    # Movimiento
+
     banco = (payload.get("banco") or "").upper()
     tipo_bbva = (payload.get("tipo_bbva") or "").lower()
     folio = (payload.get("folio") or "").strip()
@@ -387,7 +378,7 @@ def map_payload_to_deps_row(payload: Dict[str, Any]) -> List[Any]:
     producto = (payload.get("producto") or "").lower()
 
     if "tae" in producto:
-        movimiento = ""  # si es TAE, vacío
+        movimiento = ""
     elif banco == "BBVA" and tipo_bbva == "practicaja" and (folio or aut):
         movimiento = f"Folio {folio}" + (f"/ Aut {aut}" if aut else "")
     elif banco == "BBVA" and tipo_bbva == "ventanilla" and folmov:
@@ -397,19 +388,11 @@ def map_payload_to_deps_row(payload: Dict[str, Any]) -> List[Any]:
     else:
         movimiento = "-"
 
-    # Ficha
     forma_pago = (payload.get("forma_pago") or "").lower()
-    if forma_pago in ("depósito", "deposito"):
-        ficha = "s c"
-    elif forma_pago == "transferencia":
-        ficha = "transfer"
-    else:
-        ficha = ""
+    ficha = "s c" if forma_pago in ("depósito", "deposito") else ("transfer" if forma_pago == "transferencia" else "")
 
-    # Realizó
     realizo = payload.get("realizo") or ""
 
-    # Observaciones
     extra = (payload.get("observaciones") or "").strip()
     if "tae" in producto:
         observaciones = extra
@@ -417,13 +400,12 @@ def map_payload_to_deps_row(payload: Dict[str, Any]) -> List[Any]:
         base_obs = ".p/pago DEP PS"
         observaciones = base_obs + (f"  {extra}" if extra else "")
 
-    # Factura
     factura = "Sí" if payload.get("requiere_factura") else "No"
 
     return [fecha_banco, cliente, importe, movimiento, ficha, realizo, observaciones, factura]
 
 def ensure_excel_and_deps_table(token: str):
-    wb_item = _ensure_excel_exists(token, template_local="data/central_template.xlsx")
+    wb_item = _ensure_excel_exists(token)
     table_id = _ensure_table_exists(token, wb_item["id"], DEPS_WORKSHEET, DEPS_TABLE)
     return wb_item, table_id
 
@@ -443,17 +425,6 @@ def add_solicitud_row(token: str, payload: Dict[str, Any], template_local: Optio
 # -------------------- Clientes (cards) --------------------
 def get_clientes_por_usuario(token: str, numero_usuario: str) -> List[Dict[str, Any]]:
     wb = _get_driveitem_by_path(token, EXCEL_PATH)
-    ws_list = requests.get(f"{GRAPH_API}/me/drive/items/{wb['id']}/workbook/worksheets", headers=_h(token), timeout=60)
-    if ws_list.status_code != 200:
-        return []
-
-    ws_id = None
-    for ws in ws_list.json().get("value", []):
-        if ws.get("name") == CLIENTS_WORKSHEET:
-            ws_id = ws["id"]
-            break
-    if not ws_id:
-        return []
 
     tabs = requests.get(
         f"{GRAPH_API}/me/drive/items/{wb['id']}/workbook/worksheets('{urllib.parse.quote(CLIENTS_WORKSHEET)}')/tables",

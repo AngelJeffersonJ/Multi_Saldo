@@ -2,27 +2,26 @@
 <html lang="es">
 <head>
   <meta charset="utf-8"/>
-  <title>Registro guardado</title>
+  <title>Guardado</title>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <style>
-    body{font-family:system-ui,Arial,sans-serif;max-width:760px;margin:32px auto;padding:0 16px}
-    .ok{background:#e8f5e9;border:1px solid #c8e6c9;border-radius:12px;padding:16px}
+    body{font-family:system-ui,Arial,sans-serif;max-width:880px;margin:24px auto;padding:0 16px;}
+    .ok{background:#e8f5e9;border:1px solid #a5d6a7;padding:12px;border-radius:10px}
     a{color:#1a73e8;text-decoration:none}
+    pre{background:#f7f7f7;padding:8px;border-radius:8px;overflow:auto}
   </style>
 </head>
 <body>
+  <h1>Registro guardado ✅</h1>
   <div class="ok">
-    <h2>¡Guardado correctamente!</h2>
-    <p>
-      Cliente: <strong>{{ cliente }}</strong><br/>
-      Fecha: <strong>{{ fecha }}</strong><br/>
-      Banco: <strong>{{ banco }}</strong><br/>
-      Importe: <strong>{{ importe }}</strong>
-    </p>
+    <div>Se subió el comprobante a OneDrive: <a href="{{ comprobante_url }}" target="_blank">Abrir comprobante</a></div>
+    <div>Detalle: {{ res_detalle.excel }} / tabla {{ res_detalle.tabla }}</div>
+    <div>Resumen: {{ res_resumen.excel }} / tabla {{ res_resumen.tabla }}</div>
   </div>
-  <p style="margin-top:16px">
-    <a href="/">Capturar otro</a> ·
-    <a href="https://multisaldo.com.mx">regresar a multisaldo</a>
-  </p>
+
+  <h3>Datos capturados</h3>
+  <pre>{{ payload | tojson(indent=2) }}</pre>
+
+  <p><a href="/">Capturar otro</a> · <a href="https://multisaldo.com.mx">regresar a multisaldo</a></p>
 </body>
 </html>

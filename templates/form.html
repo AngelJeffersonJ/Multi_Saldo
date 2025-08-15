@@ -22,21 +22,19 @@
     button{background:#1a73e8;color:#fff;border:none;padding:10px 16px;border-radius:10px;cursor:pointer}
     button:hover{opacity:.92}
     a{color:#1a73e8;text-decoration:none}
-    .banner{padding:10px;border-radius:8px;margin-bottom:12px}
-    .warn{background:#fff3cd;border:1px solid #ffe69c}
-    .ok{background:#e8f5e9;border:1px solid #c8e6c9}
+    .alert{background:#fff2cc;border:1px solid #f1d078;padding:12px;border-radius:10px}
   </style>
 </head>
 <body>
   <h1>Registrar depósito / transferencia</h1>
 
-  <div id="authBanner" class="banner warn">
-    <b>OneDrive no conectado.</b>
-    <button type="button" id="btnCheck">Revisar estado</button>
-    <a href="/auth/start" target="_self">Conectar ahora</a>
+  <div class="alert" id="authBanner">
+    <span id="authText">Revisando estado de OneDrive…</span>
+    <button type="button" id="btnStatus">Revisar estado</button>
+    <a href="/auth/start" style="margin-left:8px">Conectar ahora</a>
   </div>
 
-  <form action="/submit" method="post" enctype="multipart/form-data" id="mainForm">
+  <form action="/submit" method="post" enctype="multipart/form-data" id="mainForm" style="margin-top:12px">
     <div class="row">
       <div class="col">
         <label>Fecha</label>
@@ -70,7 +68,7 @@
       </div>
       <div class="col" style="margin-top:8px;">
         <label>Importe</label>
-        <input type="text" name="importe" placeholder="$0.00" pattern="^[\$\s0-9\.,]+$" required>
+        <input type="text" name="importe" placeholder="$0.00" pattern="^[\$\s0-9\.,]+$" required inputmode="decimal">
         <div class="hint">Ejemplo: $1,234.56</div>
       </div>
     </fieldset>
@@ -85,25 +83,25 @@
       <legend>Folio / Autorización</legend>
       <div id="otrosBancosBox">
         <label>Folio / Referencia (otros bancos)</label>
-        <input type="text" name="folio" pattern="^\d*$">
+        <input type="text" name="folio" pattern="^\d*$" inputmode="numeric">
       </div>
 
       <div id="bbvaPracticajaBox" class="hidden">
         <div class="row">
           <div class="col">
             <label>Folio (solo números)</label>
-            <input type="text" name="autoclear_folio" pattern="^\d*$">
+            <input type="text" name="autoclear_folio" pattern="^\d*$" inputmode="numeric">
           </div>
           <div class="col">
             <label>Autorización (solo números)</label>
-            <input type="text" name="autoclear_aut" pattern="^\d*$">
+            <input type="text" name="autoclear_aut" pattern="^\d*$" inputmode="numeric">
           </div>
         </div>
       </div>
 
       <div id="bbvaVentanillaBox" class="hidden">
         <label>Folio o Movimiento (solo números)</label>
-        <input type="text" name="autoclear_folmov" pattern="^\d*$">
+        <input type="text" name="autoclear_folmov" pattern="^\d*$" inputmode="numeric">
         <div class="hint">Si ventanilla, solo llena este campo y deja Autorización vacío.</div>
       </div>
 
@@ -115,7 +113,7 @@
       <div class="row">
         <div class="col">
           <label>Número de usuario</label>
-          <input type="text" id="numero_usuario" name="numero_usuario" placeholder="15333" pattern="^\d+$" required>
+          <input type="text" id="numero_usuario" name="numero_usuario" placeholder="15333" pattern="^\d+$" inputmode="numeric" required>
         </div>
         <div class="col">
           <label>Requiere factura</label>
@@ -146,7 +144,7 @@
     </fieldset>
 
     <div class="row" style="align-items:center; gap:12px;">
-      <button type="submit" id="btnSave" disabled>Guardar</button>
+      <button type="submit">Guardar</button>
       <a href="https://multisaldo.com.mx" target="_self">regresar a multisaldo</a>
     </div>
   </form>
@@ -170,7 +168,8 @@
     const foliosBox = document.getElementById('foliosBox');
 
     function clearFolioFields() {
-      document.querySelectorAll('[name="folio"],[name="autoclear_folio"],[name="autoclear_aut"],[name="autoclear_folmov"]').forEach(el => el.value = '');
+      document.querySelectorAll('[name="autoclear_folio"],[name="autoclear_aut"],[name="autoclear_folmov"]').forEach(el => el.value = '');
+      const fol = document.querySelector('input[name="folio"]'); if (fol) fol.value = '';
     }
 
     function toggleBankUI() {
@@ -218,8 +217,8 @@
         bbvaPractiBox.classList.remove('hidden');
         bbvaVentanillaBox.classList.add('hidden');
       } else if (tipo === "ventanilla") {
-        bbvaVentanillaBox.classList.remove('hidden');
         bbvaPractiBox.classList.add('hidden');
+        bbvaVentanillaBox.classList.remove('hidden');
       } else {
         bbvaPractiBox.classList.add('hidden');
         bbvaVentanillaBox.classList.add('hidden');
@@ -250,7 +249,7 @@
         if (!data.ok) { clientesMsg.textContent = "No se pudieron obtener clientes."; return; }
         const items = data.items || [];
         if (items.length === 0) {
-          clientesMsg.textContent = "No hay clientes registrados para este usuario (o falta conectar OneDrive).";
+          clientesMsg.textContent = "No hay clientes registrados para este usuario. Espera a que los registremos.";
           return;
         }
         items.forEach((it, i) => {
@@ -281,31 +280,32 @@
     }
     numUsuario.addEventListener('blur', fetchClientes);
 
-    // Estado de OneDrive (habilita botón Guardar)
-    const banner = document.getElementById('authBanner');
-    const btnSave = document.getElementById('btnSave');
-    const btnCheck = document.getElementById('btnCheck');
-
-    async function checkAuth() {
+    // Estado OneDrive
+    const authText = document.getElementById('authText');
+    const btnStatus = document.getElementById('btnStatus');
+    async function refreshStatus() {
       try {
         const r = await fetch('/auth/status');
-        const j = await r.json();
-        if (j.ok) {
-          banner.classList.remove('warn'); banner.classList.add('ok');
-          banner.innerHTML = "<b>OneDrive conectado.</b> Ya puedes guardar.";
-          btnSave.disabled = false;
+        const d = await r.json();
+        if (d.ok) {
+          authText.textContent = "OneDrive conectado ✔";
         } else {
-          banner.classList.remove('ok'); banner.classList.add('warn');
-          btnSave.disabled = true;
+          authText.textContent = "OneDrive no conectado.";
+          console.log(d);
         }
-      } catch {}
+      } catch(e) {
+        authText.textContent = "No se pudo verificar OneDrive.";
+      }
     }
+    btnStatus.addEventListener('click', refreshStatus);
+    refreshStatus();
 
-    btnCheck.addEventListener('click', checkAuth);
-    checkAuth(); // al cargar
-
-    // estado inicial de visibilidad
-    toggleBankUI(); toggleBBVAType();
+    // estado inicial de UI
+    (function(){
+      const today = new Date();
+      document.getElementById('fecha_iso').value = today.toISOString().slice(0,10);
+      toggleBankUI(); toggleBBVAType();
+    })();
   </script>
 </body>
 </html>
