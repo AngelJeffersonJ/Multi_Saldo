@@ -1,66 +1,142 @@
 {% extends "base.html" %}
-{% block title %}Registros · Multisaldo{% endblock %}
+{% block title %}Registro de Depósito · Multisaldo{% endblock %}
 
 {% block content %}
 <div class="row justify-content-center">
-  <div class="col-12 col-xl-11">
+  <div class="col-12 col-lg-10 col-xl-9">
     <div class="card shadow-sm">
       <div class="card-body p-4">
-        <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-2">
-          <h3 class="mb-0"><i class="bi bi-table me-2"></i>Registros de Depósitos</h3>
-          <div class="text-secondary small" id="status">Listo.</div>
-        </div>
-        <p class="text-secondary mb-3">
-          Doble clic para editar · Enter guarda · <kbd>Supr</kbd> elimina fila ·
-          <kbd>Ctrl/Cmd + C / V</kbd> copia/pega.
-        </p>
+        <h3 class="mb-3"><i class="bi bi-ui-checks-grid me-2"></i>Registro de Depósito</h3>
+        <p class="text-secondary mb-4">Captura todos los campos obligatorios. Los comprobantes se almacenan de forma segura.</p>
 
-        <!-- Filtros -->
-        <div class="row g-2 align-items-center mb-3">
-          <div class="col-12 col-md-auto">
-            <input id="q-usuario" class="form-control form-control-sm" placeholder="Usuario (5 díg.)" maxlength="5" pattern="\d{5}">
-          </div>
-          <div class="col-12 col-md-auto">
-            <select id="q-banco" class="form-select form-select-sm">
-              <option value="">Banco (todos)</option>
-              <option>BBVA</option><option>Banorte</option><option>Azteca</option>
-              <option>Scotiabank</option><option>Santander</option>
-            </select>
-          </div>
-          <div class="col-12 col-md-auto">
-            <select id="q-forma" class="form-select form-select-sm">
-              <option value="">Forma (todas)</option>
-              <option>Deposito</option><option>Transferencia</option>
-            </select>
-          </div>
-          <div class="col-12 col-md-auto ms-md-auto d-flex gap-2">
-            <button id="btn-clear" type="button" class="btn btn-outline-secondary btn-sm">
-              <i class="bi bi-eraser"></i> Limpiar
-            </button>
-            <button id="btn-csv" type="button" class="btn btn-success btn-sm">
-              <i class="bi bi-filetype-csv"></i> CSV
-            </button>
-          </div>
-        </div>
+        <form method="post" enctype="multipart/form-data" id="registroForm" novalidate>
+          <!-- Banco / Forma / Producto bloqueado en una tarjeta -->
+          <div class="border rounded-3 p-3 mb-3">
+            <div class="row g-3">
+              <div class="col-md-6">
+                <label class="form-label fw-semibold">Banco</label>
+                <div class="d-flex flex-wrap gap-3">
+                  {% for b in bancos %}
+                    <div class="form-check form-check-inline">
+                      <input class="form-check-input bank-radio" type="radio" name="banco" id="b_{{b}}" value="{{b}}" {% if loop.first %}checked{% endif %} required>
+                      <label class="form-check-label" for="b_{{b}}">{{b}}</label>
+                    </div>
+                  {% endfor %}
+                </div>
+              </div>
 
-        <!-- Grid -->
-        <div id="grid"></div>
-      </div>
-    </div>
-  </div>
-</div>
+              <div class="col-md-6">
+                <label class="form-label fw-semibold">Forma de pago</label>
+                <div class="d-flex flex-wrap gap-3">
+                  {% for f in formas %}
+                    <div class="form-check form-check-inline">
+                      <input class="form-check-input pay-radio" type="radio" name="forma_pago" id="f_{{f}}" value="{{f}}" {% if loop.first %}checked{% endif %} required>
+                      <label class="form-check-label" for="f_{{f}}">{{f}}</label>
+                    </div>
+                  {% endfor %}
+                </div>
+              </div>
 
-<!-- Modal de vista previa -->
-<div class="modal fade" id="previewModal" tabindex="-1" aria-hidden="true">
-  <div class="modal-dialog modal-xl modal-dialog-centered">
-    <div class="modal-content">
-      <div class="modal-header">
-        <h5 class="modal-title"><i class="bi bi-eye me-2"></i>Vista previa del comprobante</h5>
-        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
-      </div>
-      <div class="modal-body p-0" style="height:75vh;">
-        <!-- Usamos iframe para que muestre JPG/PNG/PDF de Dropbox -->
-        <iframe id="previewFrame" title="Comprobante" style="width:100%;height:100%;border:0;"></iframe>
+              <div class="col-md-6">
+                <label class="form-label fw-semibold">Fecha de operación</label>
+                <input type="date" class="form-control" name="fecha_operacion" required>
+              </div>
+
+              <div class="col-md-6">
+                <label class="form-label fw-semibold">Producto</label>
+                <div class="d-flex flex-wrap gap-3">
+                  {% for p in productos %}
+                    <div class="form-check form-check-inline">
+                      <input class="form-check-input" type="radio" name="producto" id="p_{{p}}" value="{{p}}" {% if loop.first %}checked{% endif %} required>
+                      <label class="form-check-label" for="p_{{p}}">{{p}}</label>
+                    </div>
+                  {% endfor %}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Importe -->
+          <div class="mb-3">
+            <label class="form-label fw-semibold">Importe</label>
+            <div class="input-group">
+              <span class="input-group-text">$</span>
+              <input class="form-control" name="importe" inputmode="decimal" placeholder="0.00" required>
+            </div>
+          </div>
+
+          <!-- Lógica BBVA -->
+          <div id="bbvaTipoWrap" class="mb-3 d-none">
+            <label class="form-label fw-semibold">Tipo BBVA (solo para Depósito)</label>
+            <div class="d-flex flex-wrap gap-3">
+              <div class="form-check form-check-inline">
+                <input class="form-check-input" type="radio" name="bbva_tipo" id="bb_practicaja" value="practicaja" checked>
+                <label class="form-check-label" for="bb_practicaja">Practicaja</label>
+              </div>
+              <div class="form-check form-check-inline">
+                <input class="form-check-input" type="radio" name="bbva_tipo" id="bb_caja" value="caja">
+                <label class="form-check-label" for="bb_caja">Caja</label>
+              </div>
+            </div>
+          </div>
+
+          <div id="bbvaPracticaja" class="row g-3 mb-3 d-none">
+            <div class="col-md-6">
+              <label class="form-label">Folio (4 dígitos)</label>
+              <input class="form-control" name="folio_practicaja" pattern="\\d{4}" inputmode="numeric" placeholder="Ej. 4457">
+              <div class="form-text">Ejemplo del ticket: <span class="text-monospace">Folio=4457</span></div>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Autorización (6 dígitos)</label>
+              <input class="form-control" name="autorizacion" pattern="\\d{6}" inputmode="numeric" placeholder="Ej. 347142">
+            </div>
+          </div>
+
+          <div id="bbvaCaja" class="mb-3 d-none">
+            <label class="form-label">Folio (Caja)</label>
+            <input class="form-control" name="folio_movimiento" placeholder="Número de movimiento/folio" />
+          </div>
+
+          <div id="otrosBancos" class="mb-3">
+            <label class="form-label">Movimiento o folio</label>
+            <input class="form-control" name="folio_unico" placeholder="Referencia / folio">
+          </div>
+
+          <!-- Usuario + comprobante -->
+          <div class="row g-3 mb-3">
+            <div class="col-md-4">
+              <label class="form-label fw-semibold">Número de usuario (5 dígitos)</label>
+              <input class="form-control" name="numero_usuario" pattern="\\d{5}" inputmode="numeric" required placeholder="12345">
+            </div>
+            <div class="col-md-8">
+              <label class="form-label fw-semibold">Comprobante (JPG/PNG/PDF)</label>
+              <input class="form-control" type="file" name="comprobante" accept=".jpg,.jpeg,.png,.pdf" required>
+            </div>
+          </div>
+
+          <!-- Factura -->
+          <div class="form-check form-switch mb-2">
+            <input class="form-check-input" type="checkbox" id="reqFact" name="requiere_factura">
+            <label class="form-check-label fw-semibold" for="reqFact">Requiere factura</label>
+          </div>
+          <div id="facturaOpciones" class="mb-3 d-none">
+            <div class="small text-secondary mb-2">Selecciona la razón social asignada a este usuario:</div>
+            <div id="cardsFactura" class="row g-3"></div>
+            <input type="hidden" name="factura_opcion_id" id="factura_opcion_id">
+            <div class="small text-secondary mt-1" id="facturaHint">Ingresa primero el número de usuario (5 dígitos).</div>
+          </div>
+
+          <!-- Observaciones -->
+          <div class="mb-4">
+            <label class="form-label">Observaciones (opcional)</label>
+            <textarea class="form-control" name="observaciones" rows="3" placeholder="Notas adicionales..."></textarea>
+          </div>
+
+          <div class="d-flex gap-2">
+            <button class="btn btn-primary"><i class="bi bi-send"></i> Enviar</button>
+            <a class="btn btn-outline-secondary" href="https://www.multisaldo.com.mx/#ptoventa.jproductos/"><i class="bi bi-arrow-left"></i> Regresar a Multi Saldo</a>
+          </div>
+        </form>
       </div>
     </div>
   </div>
@@ -68,197 +144,87 @@
 {% endblock %}
 
 {% block body_extra %}
-<link rel="stylesheet" href="https://unpkg.com/tabulator-tables@5.5.2/dist/css/tabulator.min.css">
-<script src="https://unpkg.com/tabulator-tables@5.5.2/dist/js/tabulator.min.js"></script>
-
-<style>
-  .tabulator{border:1px solid var(--bs-border-color); border-radius:.5rem;}
-  .tabulator .tabulator-header{background:var(--bs-body-bg); border-bottom:1px solid var(--bs-border-color);}
-  .tabulator .tabulator-col,.tabulator .tabulator-cell{border-right:1px solid var(--bs-border-color);}
-  .tabulator .tabulator-row{background:var(--bs-body-bg);}
-  .tabulator-row.tabulator-selected{background:rgba(13,110,253,.12);}
-  .tabulator .tabulator-col .tabulator-header-filter input,
-  .tabulator .tabulator-col .tabulator-header-filter select{
-    background:var(--bs-body-bg); color:var(--bs-body-color);
-    border:1px solid var(--bs-border-color); border-radius:.375rem; padding:.2rem .35rem;
-  }
-  .btn-icon { padding:.25rem .5rem; }
-</style>
-
 <script>
-(function(){
-  const statusEl = document.getElementById('status');
-  const setStatus = (t)=>{ statusEl.textContent = t; };
+  // --- lógica de visibilidad BBVA/practicaja/caja/otros ---
+  function refreshBBVA() {
+    const bank = document.querySelector('input[name="banco"]:checked')?.value;
+    const forma = document.querySelector('input[name="forma_pago"]:checked')?.value;
 
-  // --- Preview comprobante en modal ---
-  const previewModal = new bootstrap.Modal(document.getElementById('previewModal'));
-  const previewFrame = document.getElementById('previewFrame');
-  function openPreview(compId){
-    if(!compId) return;
-    const url = "{{ url_for('admin.comprobante_link', comp_id=0) }}".replace("0", compId);
-    // con Dropbox: el endpoint redirige a un enlace directo; iframe lo carga y muestra
-    previewFrame.src = url;
-    previewModal.show();
-  }
+    const wTipo = document.getElementById('bbvaTipoWrap');
+    const wPrac = document.getElementById('bbvaPracticaja');
+    const wCaja = document.getElementById('bbvaCaja');
+    const wOtros = document.getElementById('otrosBancos');
 
-  // Botones de acciones
-  function accionesFormatter(cell){
-    const data = cell.getRow().getData();
-    const compId = data.comprobante_id;
+    const isBBVA = bank === 'BBVA';
+    const isDeposito = forma === 'Deposito';
 
-    const previewBtn = compId
-      ? `<button class="btn btn-outline-primary btn-icon me-1" data-action="preview" title="Ver comprobante">
-           <i class="bi bi-eye"></i>
-         </button>`
-      : '';
+    // reset mínimos
+    wTipo.classList.toggle('d-none', !(isBBVA && isDeposito));
+    wPrac.classList.add('d-none'); wCaja.classList.add('d-none');
 
-    const abrirBtn = compId
-      ? `<a class="btn btn-outline-secondary btn-icon me-1" target="_blank"
-            href="{{ url_for('admin.comprobante_link', comp_id=0) }}".replace("0","${compId}") title="Abrir en pestaña">
-           <i class="bi bi-box-arrow-up-right"></i>
-         </a>`
-      : '';
-
-    const editarBtn = `<button class="btn btn-outline-warning btn-icon" data-action="edit" title="Editar fila">
-                         <i class="bi bi-pencil-square"></i>
-                       </button>`;
-
-    return previewBtn + abrirBtn + editarBtn;
-  }
-
-  // Guardado por celda
-  async function saveCell(cell){
-    const id = cell.getRow().getData().id;
-    const field = cell.getField();
-    const value = cell.getValue();
-
-    setStatus("Guardando…");
-    try{
-      const res = await fetch(`{{ url_for('admin.api_depositos_update', dep_id=0) }}`.replace("0", id), {
-        method:"PATCH",
-        headers:{"Content-Type":"application/json"},
-        credentials:"same-origin",
-        body:JSON.stringify({field, value})
-      });
-      if(!res.ok) throw new Error(await res.text());
-      setStatus("Guardado.");
-    }catch(err){
-      console.error(err);
-      setStatus("Error al guardar.");
-      alert("No se pudo guardar: " + err.message);
-      cell.restoreOldValue();
+    if (isBBVA && isDeposito) {
+      const t = document.querySelector('input[name="bbva_tipo"]:checked')?.value || 'practicaja';
+      if (t === 'practicaja') { wPrac.classList.remove('d-none'); }
+      if (t === 'caja')       { wCaja.classList.remove('d-none'); }
+      wOtros.classList.add('d-none');
+    } else {
+      wOtros.classList.remove('d-none');
     }
   }
-
-  // Eliminar fila con Supr
-  async function deleteSelected(){
-    const row = grid.getSelectedRows()[0];
-    if(!row) return;
-    const id = row.getData().id;
-    if(!confirm(`Eliminar depósito #${id}?`)) return;
-
-    setStatus("Eliminando…");
-    try{
-      const res = await fetch(`{{ url_for('admin.api_depositos_delete', dep_id=0) }}`.replace("0", id), {
-        method:"DELETE",
-        credentials:"same-origin"
-      });
-      if(!res.ok) throw new Error(await res.text());
-      row.delete();
-      setStatus("Eliminado.");
-    }catch(err){
-      console.error(err);
-      setStatus("Error al eliminar.");
-      alert("No se pudo eliminar: " + err.message);
-    }
-  }
-
-  // Columnas
-  const cols = [
-    {title:"ID", field:"id", width:70, hozAlign:"right"},
-    {title:"Fecha", field:"fecha_operacion", headerFilter:"input", editor:"input", width:130},
-    {title:"Banco", field:"banco", headerFilter:"select", headerFilterParams:{values:true},
-      editor:"select", editorParams:{values:["BBVA","Banorte","Azteca","Scotiabank","Santander"]}, width:140},
-    {title:"Forma", field:"forma_pago", headerFilter:"select",
-      editor:"select", editorParams:{values:["Deposito","Transferencia"]}, width:140},
-    {title:"Producto", field:"producto", headerFilter:"select",
-      editor:"select", editorParams:{values:["TAE","Pago de servicios"]}, width:180},
-    {title:"Usuario", field:"numero_usuario", headerFilter:"input", editor:"input", width:120,
-      validator:["required","integer","min:0","max:99999"]},
-    {title:"Importe", field:"importe", headerFilter:"input", editor:"input", hozAlign:"right", width:110},
-    {title:"BBVA tipo", field:"bbva_tipo", headerFilter:"select",
-      editor:"select", editorParams:{values:["","practicaja","caja"]}, width:130},
-    {title:"Folio", field:"folio", headerFilter:"input", editor:"input", width:120},
-    {title:"Autorización", field:"autorizacion", headerFilter:"input", editor:"input", width:140},
-    {title:"Referencia", field:"referencia", headerFilter:"input", editor:"input", width:140},
-    {title:"Factura", field:"requiere_factura", headerFilter:"select",
-      headerFilterParams:{values:{"":"(todas)","true":"Sí","false":"No"}},
-      formatter:"tickCross", hozAlign:"center", width:90, editor:true,
-      mutatorEdit:(v)=>!!v},
-    {title:"Estatus", field:"estatus", headerFilter:"input", editor:"input", width:120},
-    {title:"Obs.", field:"observaciones", headerFilter:"input", editor:"textarea", width:220},
-    {title:"Acciones", field:"_acciones", width:210, headerSort:false, hozAlign:"center", formatter:accionesFormatter},
-  ];
-
-  // Grid
-  const grid = new Tabulator("#grid", {
-    ajaxURL: "{{ url_for('admin.api_depositos_list') }}",
-    ajaxConfig:{method:"GET", credentials:"same-origin"},
-    layout:"fitDataStretch",
-    height:"70vh",
-    columns: cols,
-    selectable:1,
-    movableColumns:true,
-    resizableColumns:true,
-    clipboard:true,
-    clipboardPasteAction:"update",
-    history:true,
-    persistence:{sort:true, filter:true, columns:true},
-    placeholder:"Sin registros.",
-    ajaxResponse:(url,params,data)=>{ setStatus(`Filas: ${data.length}`); return data; },
-    ajaxError:()=>{ setStatus("Error al cargar."); },
-    cellEdited: saveCell,
-    keybindings:{ "delete": deleteSelected },
-    rowFormatter:function(row){
-      // delega clicks de los botones de acción
-      row.getElement().addEventListener('click', function(ev){
-        const btn = ev.target.closest('button, a');
-        if(!btn) return;
-        const action = btn.dataset.action;
-        const data = row.getData();
-
-        if(action === 'preview'){
-          openPreview(data.comprobante_id);
-        }else if(action === 'edit'){
-          // Enfoca la primera celda editable visible
-          const cells = row.getCells().filter(c=>c.getColumn().getDefinition().editor);
-          if(cells.length){ cells[0].edit(); }
-        }
-      }, {once:false});
-    }
+  document.querySelectorAll('.bank-radio,.pay-radio,input[name="bbva_tipo"]').forEach(el => {
+    el.addEventListener('change', refreshBBVA);
   });
+  refreshBBVA();
 
-  // Filtros rápidos
-  const qUsuario = document.getElementById('q-usuario');
-  const qBanco = document.getElementById('q-banco');
-  const qForma = document.getElementById('q-forma');
-  function syncQuick(){
-    grid.setHeaderFilterValue("numero_usuario", qUsuario.value || "");
-    grid.setHeaderFilterValue("banco", qBanco.value || "");
-    grid.setHeaderFilterValue("forma_pago", qForma.value || "");
+  // --- factura: cargar opciones por usuario ---
+  const reqFact = document.getElementById('reqFact');
+  const factWrap = document.getElementById('facturaOpciones');
+  const cards = document.getElementById('cardsFactura');
+  const inputUser = document.querySelector('input[name="numero_usuario"]');
+  const hiddenId = document.getElementById('factura_opcion_id');
+  function renderCards(items) {
+    cards.innerHTML = '';
+    if (!items.length) {
+      cards.innerHTML = '<div class="text-secondary">No hay opciones registradas para ese usuario.</div>';
+      hiddenId.value = '';
+      return;
+    }
+    for (const it of items) {
+      const col = document.createElement('div');
+      col.className = 'col-md-6 col-lg-4';
+      col.innerHTML = `
+        <div class="card h-100 hover-card cursor-pointer" data-id="${it.id}">
+          <div class="card-body">
+            <div class="fw-semibold">${it.titulo}</div>
+            <div class="small text-secondary">RFC: ${it.rfc || '-'}</div>
+            <div class="small text-secondary">${it.email || ''}</div>
+          </div>
+        </div>`;
+      col.querySelector('.card').addEventListener('click', () => {
+        document.querySelectorAll('#cardsFactura .card').forEach(c => c.classList.remove('selected-card'));
+        col.querySelector('.card').classList.add('selected-card');
+        hiddenId.value = it.id;
+      });
+      cards.appendChild(col);
+    }
   }
-  qUsuario.addEventListener('input', syncQuick);
-  qBanco.addEventListener('change', syncQuick);
-  qForma.addEventListener('change', syncQuick);
-
-  document.getElementById('btn-clear').addEventListener('click', ()=>{
-    qUsuario.value=""; qBanco.value=""; qForma.value="";
-    grid.clearHeaderFilter();
+  async function fetchOpciones() {
+    hiddenId.value = '';
+    cards.innerHTML = '';
+    if (!/^\d{5}$/.test(inputUser.value)) return;
+    try {
+      const q = new URLSearchParams({ numero_usuario: inputUser.value });
+      const resp = await fetch(`/api/opciones_factura?${q}`);
+      const data = await resp.json();
+      renderCards(data);
+    } catch (e) {
+      console.error(e);
+    }
+  }
+  inputUser.addEventListener('input', () => { if (reqFact.checked) fetchOpciones(); });
+  reqFact.addEventListener('change', () => {
+    factWrap.classList.toggle('d-none', !reqFact.checked);
+    if (reqFact.checked) fetchOpciones();
   });
-  document.getElementById('btn-csv').addEventListener('click', ()=> grid.download("csv","depositos.csv"));
-
-  // primera carga
-  grid.setData();
-})();
 </script>
 {% endblock %}

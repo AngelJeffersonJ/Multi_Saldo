@@ -1,99 +1,136 @@
-<!doctype html>
-<html lang="es">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Registros de Depósitos</title>
+{% extends "base.html" %}
+{% block title %}Registros · Multisaldo{% endblock %}
 
-  <!-- Tabulator -->
-  <link href="https://unpkg.com/tabulator-tables@5.5.2/dist/css/tabulator.min.css" rel="stylesheet">
-  <script src="https://unpkg.com/tabulator-tables@5.5.2/dist/js/tabulator.min.js"></script>
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-12 col-xl-11">
+    <div class="card shadow-sm">
+      <div class="card-body p-4">
+        <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-2">
+          <h3 class="mb-0"><i class="bi bi-table me-2"></i>Registros de Depósitos</h3>
+          <div class="text-secondary small" id="status">Listo.</div>
+        </div>
+        <p class="text-secondary mb-3">
+          Doble clic para editar · Enter guarda · <kbd>Supr</kbd> elimina fila ·
+          <kbd>Ctrl/Cmd + C / V</kbd> copia/pega.
+        </p>
 
-  <style>
-    :root{
-      --bg:#0b0f14; --panel:#121923; --muted:#8b9bb4; --text:#e7edf5; --brand:#6ee7b7;
-      --line:#223245; --btn:#162231; --btn-h:#1d2d40; --danger:#ef4444;
-    }
-    *{box-sizing:border-box}
-    body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,"Segoe UI",Roboto,Inter,Helvetica,Arial,sans-serif}
-    .topbar{display:flex;align-items:center;gap:.75rem;padding:.75rem 1rem;border-bottom:1px solid var(--line);background:var(--panel)}
-    .brand{display:flex;align-items:center;gap:.5rem;font-weight:700}
-    .pill{background:#0f172a;border:1px solid var(--line);padding:.35rem .6rem;border-radius:.5rem;color:var(--muted)}
-    .wrap{padding:1rem;max-width:1400px;margin:0 auto}
-    .title{display:flex;align-items:center;gap:.6rem;font-size:1.6rem;font-weight:800;margin:.4rem 0 1rem}
-    .hint{background:#0f172a;border:1px solid var(--line);padding:.6rem .8rem;border-radius:.6rem;color:var(--muted)}
-    .bar{display:flex;gap:.5rem;flex-wrap:wrap;margin:.9rem 0}
-    .input,.select{background:var(--bg);border:1px solid var(--line);color:var(--text);border-radius:.5rem;padding:.5rem .6rem}
-    .btn{background:var(--btn);border:1px solid var(--line);padding:.5rem .8rem;border-radius:.5rem;color:var(--text);cursor:pointer}
-    .btn:hover{background:var(--btn-h)}
-    .btn-danger{border-color:#7f1d1d;background:#1b0b0b;color:#fecaca}
-    .right{margin-left:auto}
-    .status{font-size:.9rem;color:var(--muted)}
-    /* Tabulator tweaks */
-    .tabulator{background:var(--panel);border:1px solid var(--line)}
-    .tabulator .tabulator-header{background:#0d1520;border-bottom:1px solid var(--line)}
-    .tabulator .tabulator-col,.tabulator .tabulator-cell{border-right:1px solid #1b2a3f}
-    .tabulator .tabulator-row{background:var(--panel)}
-    .tabulator .tabulator-row.tabulator-selected{background:#0e1f31}
-    .tabulator .tabulator-col .tabulator-header-filter input,
-    .tabulator .tabulator-col .tabulator-header-filter select{
-      background:#0b0f14;color:var(--text);border:1px solid var(--line);border-radius:.35rem;padding:.25rem .35rem;
-    }
-  </style>
-</head>
-<body>
+        <!-- Filtros -->
+        <div class="row g-2 align-items-center mb-3">
+          <div class="col-12 col-md-auto">
+            <input id="q-usuario" class="form-control form-control-sm" placeholder="Usuario (5 díg.)" maxlength="5" pattern="\d{5}">
+          </div>
+          <div class="col-12 col-md-auto">
+            <select id="q-banco" class="form-select form-select-sm">
+              <option value="">Banco (todos)</option>
+              <option>BBVA</option><option>Banorte</option><option>Azteca</option>
+              <option>Scotiabank</option><option>Santander</option>
+            </select>
+          </div>
+          <div class="col-12 col-md-auto">
+            <select id="q-forma" class="form-select form-select-sm">
+              <option value="">Forma (todas)</option>
+              <option>Deposito</option><option>Transferencia</option>
+            </select>
+          </div>
+          <div class="col-12 col-md-auto ms-md-auto d-flex gap-2">
+            <button id="btn-clear" type="button" class="btn btn-outline-secondary btn-sm">
+              <i class="bi bi-eraser"></i> Limpiar
+            </button>
+            <button id="btn-csv" type="button" class="btn btn-success btn-sm">
+              <i class="bi bi-filetype-csv"></i> CSV
+            </button>
+          </div>
+        </div>
 
-  <div class="topbar">
-    <div class="brand">🏦 Multisaldo</div>
-    <span class="pill">Admin</span>
-    <div class="right">
-      <a class="btn" href="{{ url_for('public.registro') }}">Registro</a>
-      <a class="btn btn-danger" href="{{ url_for('admin.logout') }}">Salir</a>
+        <!-- Grid -->
+        <div id="grid"></div>
+      </div>
     </div>
   </div>
+</div>
 
-  <div class="wrap">
-    <div class="title">📊 Registros de Depósitos</div>
-
-    <div class="hint">Doble clic para editar · Enter guarda · <kbd>Supr</kbd> elimina la fila seleccionada · <kbd>Ctrl/Cmd+C / V</kbd> copia/pega.</div>
-
-    <!-- Filtros rápidos (se sincronizan con los header filters) -->
-    <div class="bar">
-      <input id="q-usuario" class="input" placeholder="Usuario (5 díg.)" maxlength="5" pattern="\\d{5}">
-      <select id="q-banco" class="select">
-        <option value="">Banco (todos)</option>
-        <option>BBVA</option><option>Banorte</option><option>Azteca</option><option>Scotiabank</option><option>Santander</option>
-      </select>
-      <select id="q-forma" class="select">
-        <option value="">Forma (todas)</option>
-        <option>Deposito</option><option>Transferencia</option>
-      </select>
-      <button id="btn-clear" class="btn">Limpiar</button>
-      <button id="btn-csv" class="btn">CSV</button>
-      <span id="status" class="status right">Listo.</span>
+<!-- Modal de vista previa -->
+<div class="modal fade" id="previewModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-xl modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="bi bi-eye me-2"></i>Vista previa del comprobante</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body p-0" style="height:75vh;">
+        <!-- Usamos iframe para que muestre JPG/PNG/PDF de Dropbox -->
+        <iframe id="previewFrame" title="Comprobante" style="width:100%;height:100%;border:0;"></iframe>
+      </div>
     </div>
-
-    <div id="grid"></div>
   </div>
+</div>
+{% endblock %}
+
+{% block body_extra %}
+<link rel="stylesheet" href="https://unpkg.com/tabulator-tables@5.5.2/dist/css/tabulator.min.css">
+<script src="https://unpkg.com/tabulator-tables@5.5.2/dist/js/tabulator.min.js"></script>
+
+<style>
+  .tabulator{border:1px solid var(--bs-border-color); border-radius:.5rem;}
+  .tabulator .tabulator-header{background:var(--bs-body-bg); border-bottom:1px solid var(--bs-border-color);}
+  .tabulator .tabulator-col,.tabulator .tabulator-cell{border-right:1px solid var(--bs-border-color);}
+  .tabulator .tabulator-row{background:var(--bs-body-bg);}
+  .tabulator-row.tabulator-selected{background:rgba(13,110,253,.12);}
+  .tabulator .tabulator-col .tabulator-header-filter input,
+  .tabulator .tabulator-col .tabulator-header-filter select{
+    background:var(--bs-body-bg); color:var(--bs-body-color);
+    border:1px solid var(--bs-border-color); border-radius:.375rem; padding:.2rem .35rem;
+  }
+  .btn-icon { padding:.25rem .5rem; }
+</style>
 
 <script>
-  // Helpers
+(function(){
   const statusEl = document.getElementById('status');
-  function setStatus(t){ statusEl.textContent = t; }
+  const setStatus = (t)=>{ statusEl.textContent = t; };
 
-  // Formateador: botón a comprobante
-  function comprobanteFormatter(cell){
-    const id = cell.getValue();
-    if(!id) return "";
-    const url = "{{ url_for('admin.comprobante_link', comp_id=0) }}".replace("0", id);
-    return `<a class="btn" href="${url}" target="_blank">Comprobante</a>`;
+  // --- Preview comprobante en modal ---
+  const previewModal = new bootstrap.Modal(document.getElementById('previewModal'));
+  const previewFrame = document.getElementById('previewFrame');
+  function openPreview(compId){
+    if(!compId) return;
+    const url = "{{ url_for('admin.comprobante_link', comp_id=0) }}".replace("0", compId);
+    // con Dropbox: el endpoint redirige a un enlace directo; iframe lo carga y muestra
+    previewFrame.src = url;
+    previewModal.show();
   }
 
-  // Guardado remoto (PATCH) al editar una celda
+  // Botones de acciones
+  function accionesFormatter(cell){
+    const data = cell.getRow().getData();
+    const compId = data.comprobante_id;
+
+    const previewBtn = compId
+      ? `<button class="btn btn-outline-primary btn-icon me-1" data-action="preview" title="Ver comprobante">
+           <i class="bi bi-eye"></i>
+         </button>`
+      : '';
+
+    const abrirBtn = compId
+      ? `<a class="btn btn-outline-secondary btn-icon me-1" target="_blank"
+            href="{{ url_for('admin.comprobante_link', comp_id=0) }}".replace("0","${compId}") title="Abrir en pestaña">
+           <i class="bi bi-box-arrow-up-right"></i>
+         </a>`
+      : '';
+
+    const editarBtn = `<button class="btn btn-outline-warning btn-icon" data-action="edit" title="Editar fila">
+                         <i class="bi bi-pencil-square"></i>
+                       </button>`;
+
+    return previewBtn + abrirBtn + editarBtn;
+  }
+
+  // Guardado por celda
   async function saveCell(cell){
+    const id = cell.getRow().getData().id;
     const field = cell.getField();
     const value = cell.getValue();
-    const id = cell.getRow().getData().id;
 
     setStatus("Guardando…");
     try{
@@ -105,18 +142,15 @@
       });
       if(!res.ok) throw new Error(await res.text());
       setStatus("Guardado.");
-      return true;
-    }catch(e){
-      console.error(e);
+    }catch(err){
+      console.error(err);
       setStatus("Error al guardar.");
-      // revertir valor en UI
+      alert("No se pudo guardar: " + err.message);
       cell.restoreOldValue();
-      alert("No se pudo guardar: " + e.message);
-      return false;
     }
   }
 
-  // Eliminar fila (DELETE) con tecla Supr
+  // Eliminar fila con Supr
   async function deleteSelected(){
     const row = grid.getSelectedRows()[0];
     if(!row) return;
@@ -132,93 +166,99 @@
       if(!res.ok) throw new Error(await res.text());
       row.delete();
       setStatus("Eliminado.");
-    }catch(e){
-      console.error(e);
+    }catch(err){
+      console.error(err);
       setStatus("Error al eliminar.");
-      alert("No se pudo eliminar: " + e.message);
+      alert("No se pudo eliminar: " + err.message);
     }
   }
 
-  // Definición de columnas “modo Excel” (editores + validadores)
+  // Columnas
   const cols = [
-    {title:"ID", field:"id", width:70, headerSort:true, hozAlign:"right", headerHozAlign:"center"},
-    {title:"Fecha", field:"fecha_operacion", headerFilter:"input", editor:"input",
-      validator:["required"],
-      headerSort:true, width:130},
-    {title:"Banco", field:"banco", headerFilter:"select", headerFilterParams:{
-        values:true // genera opciones desde datos
-      },
+    {title:"ID", field:"id", width:70, hozAlign:"right"},
+    {title:"Fecha", field:"fecha_operacion", headerFilter:"input", editor:"input", width:130},
+    {title:"Banco", field:"banco", headerFilter:"select", headerFilterParams:{values:true},
       editor:"select", editorParams:{values:["BBVA","Banorte","Azteca","Scotiabank","Santander"]}, width:140},
     {title:"Forma", field:"forma_pago", headerFilter:"select",
       editor:"select", editorParams:{values:["Deposito","Transferencia"]}, width:140},
     {title:"Producto", field:"producto", headerFilter:"select",
-      editor:"select", editorParams:{values:["TAE","Pago de servicios"]}, width:160},
-    {title:"Usuario", field:"numero_usuario", headerFilter:"input",
-      editor:"input", validator:["required","integer","min:0","max:99999"], width:120},
-    {title:"Importe", field:"importe", headerFilter:"input", hozAlign:"right",
-      editor:"input", validator:["required"], width:120},
+      editor:"select", editorParams:{values:["TAE","Pago de servicios"]}, width:180},
+    {title:"Usuario", field:"numero_usuario", headerFilter:"input", editor:"input", width:120,
+      validator:["required","integer","min:0","max:99999"]},
+    {title:"Importe", field:"importe", headerFilter:"input", editor:"input", hozAlign:"right", width:110},
     {title:"BBVA tipo", field:"bbva_tipo", headerFilter:"select",
-      editor:"select", editorParams:{values:["","practicaja","caja"]}, width:140},
+      editor:"select", editorParams:{values:["","practicaja","caja"]}, width:130},
     {title:"Folio", field:"folio", headerFilter:"input", editor:"input", width:120},
     {title:"Autorización", field:"autorizacion", headerFilter:"input", editor:"input", width:140},
     {title:"Referencia", field:"referencia", headerFilter:"input", editor:"input", width:140},
     {title:"Factura", field:"requiere_factura", headerFilter:"select",
       headerFilterParams:{values:{"":"(todas)","true":"Sí","false":"No"}},
-      formatter:"tickCross", hozAlign:"center", width:90,
-      editor:true, mutatorEdit:function(v){ return !!v; }},
-    {title:"Estatus", field:"estatus", headerFilter:"input", editor:"input", width:140},
+      formatter:"tickCross", hozAlign:"center", width:90, editor:true,
+      mutatorEdit:(v)=>!!v},
+    {title:"Estatus", field:"estatus", headerFilter:"input", editor:"input", width:120},
     {title:"Obs.", field:"observaciones", headerFilter:"input", editor:"textarea", width:220},
-    {title:"", field:"comprobante_id", formatter:comprobanteFormatter, width:150, hozAlign:"center", headerSort:false},
+    {title:"Acciones", field:"_acciones", width:210, headerSort:false, hozAlign:"center", formatter:accionesFormatter},
   ];
 
-  // Construye URL base de la API (sin filtros: los haremos en cliente con headerFilter)
-  const API_URL = "{{ url_for('admin.api_depositos_list') }}";
-
-  // Instancia del grid
+  // Grid
   const grid = new Tabulator("#grid", {
-    ajaxURL: API_URL,
-    ajaxConfig: {method:"GET", credentials:"same-origin"},
+    ajaxURL: "{{ url_for('admin.api_depositos_list') }}",
+    ajaxConfig:{method:"GET", credentials:"same-origin"},
     layout:"fitDataStretch",
-    height:"68vh",
-    placeholder:"Sin registros.",
+    height:"70vh",
     columns: cols,
     selectable:1,
     movableColumns:true,
     resizableColumns:true,
     clipboard:true,
     clipboardPasteAction:"update",
-    history:true, // undo/redo
-    persistence:{sort:true, columns:true, filter:true}, // recuerda estado
-    headerVisible:true,
-    ajaxResponse:function(url, params, data){ setStatus(`Filas: ${data.length}`); return data; },
-    ajaxError:function(xhr){ alert(`Error cargando datos (${xhr.status}).`); },
+    history:true,
+    persistence:{sort:true, filter:true, columns:true},
+    placeholder:"Sin registros.",
+    ajaxResponse:(url,params,data)=>{ setStatus(`Filas: ${data.length}`); return data; },
+    ajaxError:()=>{ setStatus("Error al cargar."); },
     cellEdited: saveCell,
-    keybindings:{
-      "delete": deleteSelected
+    keybindings:{ "delete": deleteSelected },
+    rowFormatter:function(row){
+      // delega clicks de los botones de acción
+      row.getElement().addEventListener('click', function(ev){
+        const btn = ev.target.closest('button, a');
+        if(!btn) return;
+        const action = btn.dataset.action;
+        const data = row.getData();
+
+        if(action === 'preview'){
+          openPreview(data.comprobante_id);
+        }else if(action === 'edit'){
+          // Enfoca la primera celda editable visible
+          const cells = row.getCells().filter(c=>c.getColumn().getDefinition().editor);
+          if(cells.length){ cells[0].edit(); }
+        }
+      }, {once:false});
     }
   });
 
-  // Filtros rápidos (sincronizan con header filters)
+  // Filtros rápidos
   const qUsuario = document.getElementById('q-usuario');
   const qBanco = document.getElementById('q-banco');
   const qForma = document.getElementById('q-forma');
-  function syncQuickFiltersToHeaders(){
+  function syncQuick(){
     grid.setHeaderFilterValue("numero_usuario", qUsuario.value || "");
     grid.setHeaderFilterValue("banco", qBanco.value || "");
     grid.setHeaderFilterValue("forma_pago", qForma.value || "");
   }
-  qUsuario.addEventListener('input', syncQuickFiltersToHeaders);
-  qBanco.addEventListener('change', syncQuickFiltersToHeaders);
-  qForma.addEventListener('change', syncQuickFiltersToHeaders);
+  qUsuario.addEventListener('input', syncQuick);
+  qBanco.addEventListener('change', syncQuick);
+  qForma.addEventListener('change', syncQuick);
 
-  document.getElementById('btn-clear').onclick = ()=>{
+  document.getElementById('btn-clear').addEventListener('click', ()=>{
     qUsuario.value=""; qBanco.value=""; qForma.value="";
     grid.clearHeaderFilter();
-  };
-  document.getElementById('btn-csv').onclick = ()=> grid.download("csv","depositos.csv");
+  });
+  document.getElementById('btn-csv').addEventListener('click', ()=> grid.download("csv","depositos.csv"));
 
-  // Carga inicial
-  grid.setData(API_URL);
+  // primera carga
+  grid.setData();
+})();
 </script>
-</body>
-</html>
+{% endblock %}
