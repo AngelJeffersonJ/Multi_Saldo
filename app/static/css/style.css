@@ -1,0 +1,13 @@
+/* Tipografía más clara */
+body { font-feature-settings: "cv11","ss01"; }
+
+/* Cards seleccionables de factura */
+.hover-card { transition: transform .06s ease, box-shadow .06s ease; }
+.hover-card:hover { transform: translateY(-2px); box-shadow: 0 .4rem 1rem rgba(0,0,0,.08); }
+.selected-card { outline: 2px solid var(--bs-primary); }
+
+/* Tabulator tamaño */
+.tabulator { font-size: 0.95rem; }
+
+/* Ajustes modo oscuro */
+:root[data-bs-theme="dark"] .card { background-color:#1f1f1f; }
