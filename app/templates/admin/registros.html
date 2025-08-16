@@ -1,120 +1,130 @@
-{% extends "base.html" %}
-{% block title %}Admin · Registros{% endblock %}
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Registros de Depósitos</title>
 
-{% block content %}
-<div class="d-flex flex-wrap justify-content-between align-items-center mb-3 gap-2">
-  <h3 class="m-0"><i class="bi bi-table me-2"></i>Registros de Depósitos</h3>
-  <div class="d-flex flex-wrap gap-2">
-    <input class="form-control form-control-sm" id="qUsuario" placeholder="Usuario (5 díg.)" style="width: 160px;">
-    <select class="form-select form-select-sm" id="qBanco" style="width: 170px;">
-      <option value="">Banco (todos)</option>
-      <option>BBVA</option><option>Banorte</option><option>Azteca</option><option>Scotiabank</option><option>Santander</option>
-    </select>
-    <select class="form-select form-select-sm" id="qForma" style="width: 170px;">
-      <option value="">Forma (todas)</option>
-      <option>Deposito</option><option>Transferencia</option>
-    </select>
-    <button class="btn btn-outline-secondary btn-sm" id="btnClear"><i class="bi bi-eraser"></i> Limpiar</button>
-    <button class="btn btn-outline-success btn-sm" id="btnCSV"><i class="bi bi-filetype-csv"></i> CSV</button>
+  <!-- Tabulator -->
+  <link href="https://unpkg.com/tabulator-tables@5.5.2/dist/css/tabulator.min.css" rel="stylesheet">
+  <script src="https://unpkg.com/tabulator-tables@5.5.2/dist/js/tabulator.min.js"></script>
+
+  <style>
+    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;margin:0;background:#111;color:#e5e7eb}
+    .bar{display:flex;align-items:center;gap:.5rem;padding:1rem;border-bottom:1px solid #333}
+    .wrap{padding:1.25rem}
+    .btn{padding:.5rem .75rem;border-radius:.5rem;border:1px solid #444;background:#1f2937;color:#e5e7eb;cursor:pointer}
+    .btn:hover{background:#374151}
+    .input,.select{background:#111;border:1px solid #444;color:#e5e7eb;border-radius:.5rem;padding:.45rem .6rem}
+    .title{display:flex;align-items:center;gap:.5rem;font-size:1.8rem;font-weight:700;margin:.75rem 0 1rem}
+    .hint{background:#0f172a;border:1px solid #334155;border-radius:.75rem;padding:.75rem 1rem;color:#9ca3af}
+  </style>
+</head>
+<body>
+
+  <div class="bar">
+    <strong style="font-size:1.2rem">Multisaldo</strong>
+    <div style="flex:1"></div>
+    <a class="btn" href="{{ url_for('public.registro') }}">Registro</a>
+    <a class="btn" href="{{ url_for('admin.logout') }}">Salir</a>
   </div>
-</div>
 
-<div class="card shadow-sm">
-  <div class="card-body">
+  <div class="wrap">
+    <div class="title">📊 Registros de Depósitos</div>
+
+    <div class="hint">
+      Doble clic para editar. Enter para guardar. Supr para eliminar fila seleccionada.
+    </div>
+
+    <div style="display:flex;gap:.5rem;margin:1rem 0;flex-wrap:wrap">
+      <input id="f-usuario" class="input" placeholder="Usuario (5 díg.)" maxlength="5" pattern="\\d{5}">
+      <select id="f-banco" class="select">
+        <option value="">Banco (todos)</option>
+        <option>BBVA</option><option>Banorte</option><option>Azteca</option><option>Scotiabank</option><option>Santander</option>
+      </select>
+      <select id="f-forma" class="select">
+        <option value="">Forma (todas)</option>
+        <option>Deposito</option><option>Transferencia</option>
+      </select>
+      <button id="btn-filtrar" class="btn">Filtrar</button>
+      <button id="btn-limpiar" class="btn">Limpiar</button>
+      <button id="btn-csv" class="btn">CSV</button>
+    </div>
+
     <div id="grid"></div>
-    <div class="text-secondary small mt-2">Doble clic para editar. Enter para guardar. Supr para eliminar fila seleccionada.</div>
   </div>
-</div>
-{% endblock %}
 
-{% block body_extra %}
 <script>
-  const grid = new Tabulator("#grid", {
-    ajaxURL: "{{ url_for('admin.api_depositos_list') }}",
-    height: "70vh",
-    layout: "fitColumns",
-    reactiveData: true,
-    pagination: true,
-    paginationSize: 20,
-    selectable: 1,
-    columns: [
-      {title:"ID", field:"id", width:70, hozAlign:"right", headerSort:true, frozen:true},
-      {title:"Fecha", field:"fecha_operacion", editor:"input", headerSort:true},
-      {title:"Banco", field:"banco", editor:"list", editorParams:{values:["BBVA","Banorte","Azteca","Scotiabank","Santander"]}},
-      {title:"Forma", field:"forma_pago", editor:"list", editorParams:{values:["Deposito","Transferencia"]}},
-      {title:"Producto", field:"producto", editor:"list", editorParams:{values:["TAE","Pago de servicios"]}},
-      {title:"Usuario", field:"numero_usuario", editor:"input"},
-      {title:"Importe", field:"importe", editor:"input", hozAlign:"right"},
-      {title:"Tipo BBVA", field:"bbva_tipo", editor:"list", editorParams:{values:["","practicaja","caja"]}},
-      {title:"Folio", field:"folio", editor:"input"},
-      {title:"Autorización", field:"autorizacion", editor:"input"},
-      {title:"Referencia", field:"referencia", editor:"input"},
-      {title:"Factura", field:"requiere_factura", formatter:"tickCross", hozAlign:"center", editor:true, width:95},
-      {title:"Estatus", field:"estatus", editor:"list", editorParams:{values:["registrado","validado","cancelado"]}},
-      {title:"Observaciones", field:"observaciones", editor:"input", width:260},
-      {title:"Comprobante", field:"comprobante_id", width:140, hozAlign:"center",
-        formatter:function(cell){
-          const id = cell.getValue(); if(!id) return "—";
-          const url = "{{ url_for('admin.comprobante_link', comp_id=0) }}".replace("0", id);
-          return `<a class="btn btn-sm btn-outline-primary" target="_blank" href="${url}"><i class="bi bi-file-earmark-arrow-down"></i> Ver</a>`;
-        }
-      },
-    ],
-    cellEdited: async (cell)=>{
-      const row = cell.getRow().getData();
-      const field = cell.getField();
-      try{
-        await axios.patch(`{{ url_for('admin.api_depositos_update', dep_id=0) }}`.replace("0", row.id), {
-          field, value: row[field],
-        });
-      }catch(err){
-        alert("Error al guardar: " + (err.response?.data?.error || err.message));
-        grid.replaceData(); // deshacer cambios
-      }
-    },
-  });
-
-  // Filtros
-  function applyFilters(){
-    const banco = document.getElementById('qBanco').value;
-    const forma = document.getElementById('qForma').value;
-    const usuario = document.getElementById('qUsuario').value.trim();
-
-    const filters = [];
-    if (banco) filters.push({field:"banco", type:"=", value:banco});
-    if (forma) filters.push({field:"forma_pago", type:"=", value:forma});
-    if (usuario) filters.push({field:"numero_usuario", type:"like", value:usuario});
-    grid.setFilter(filters);
+  // Construye URL de la API con parámetros de filtro
+  function buildApiUrl(){
+    const base = "{{ url_for('admin.api_depositos_list') }}";
+    const p = new URLSearchParams();
+    const u = document.getElementById('f-usuario').value.trim();
+    const b = document.getElementById('f-banco').value;
+    const f = document.getElementById('f-forma').value;
+    if (u) p.set('numero_usuario', u);
+    if (b) p.set('banco', b);
+    if (f) p.set('forma_pago', f);
+    const qs = p.toString();
+    return qs ? (base + "?" + qs) : base;
   }
-  document.getElementById('qBanco').addEventListener('change', applyFilters);
-  document.getElementById('qForma').addEventListener('change', applyFilters);
-  document.getElementById('qUsuario').addEventListener('input', applyFilters);
-  document.getElementById('btnClear').addEventListener('click', ()=>{
-    document.getElementById('qBanco').value = "";
-    document.getElementById('qForma').value = "";
-    document.getElementById('qUsuario').value = "";
-    grid.clearFilter();
+
+  // Columna con link a comprobante
+  function comprobanteFormatter(cell){
+    const id = cell.getValue();
+    if(!id) return "";
+    const url = "{{ url_for('admin.comprobante_link', comp_id=0) }}".replace("0", id);
+    return `<a class="btn" href="${url}" target="_blank">Comprobante</a>`;
+  }
+
+  // Grid
+  const grid = new Tabulator("#grid", {
+    ajaxURL: buildApiUrl(),
+    ajaxConfig: { method: "GET", credentials: "same-origin" }, // envía cookie de sesión
+    ajaxContentType: "json",
+    ajaxResponse:function(url, params, response){
+      console.log("Filas recibidas:", Array.isArray(response) ? response.length : response);
+      return response; // Tabulator espera un array
+    },
+    ajaxError:function(xhr){
+      console.error("API error", xhr.status, xhr.responseText);
+      alert("Error cargando datos (" + xhr.status + "): " + (xhr.responseText || ''));
+    },
+    index: "id",
+    layout: "fitColumns",
+    height: "68vh",
+    placeholder: "Sin registros.",
+    columns: [
+      {title:"ID", field:"id", width:70},
+      {title:"Fecha", field:"fecha_operacion", hozAlign:"center"},
+      {title:"Banco", field:"banco"},
+      {title:"Forma", field:"forma_pago"},
+      {title:"Producto", field:"producto"},
+      {title:"Usuario", field:"numero_usuario"},
+      {title:"Importe", field:"importe", hozAlign:"right"},
+      {title:"BBVA tipo", field:"bbva_tipo"},
+      {title:"Folio", field:"folio"},
+      {title:"Autorización", field:"autorizacion"},
+      {title:"Referencia", field:"referencia"},
+      {title:"Factura", field:"requiere_factura", formatter:"tickCross", hozAlign:"center", width:90},
+      {title:"Estatus", field:"estatus"},
+      {title:"Obs.", field:"observaciones", width:220},
+      {title:"", field:"comprobante_id", formatter:comprobanteFormatter, width:140, hozAlign:"center"},
+    ],
   });
 
-  // Export CSV
-  document.getElementById('btnCSV').addEventListener('click', ()=>{
-    grid.download("csv", "depositos.csv");
-  });
+  // Acciones de barra
+  document.getElementById('btn-filtrar').onclick = () => grid.setData(buildApiUrl());
+  document.getElementById('btn-limpiar').onclick = () => {
+    document.getElementById('f-usuario').value = "";
+    document.getElementById('f-banco').value = "";
+    document.getElementById('f-forma').value = "";
+    grid.setData(buildApiUrl());
+  };
+  document.getElementById('btn-csv').onclick = () => grid.download('csv', 'depositos.csv');
 
-  // Eliminar con tecla Supr
-  document.addEventListener("keydown", async (e)=>{
-    if(e.key === "Delete"){
-      const rows = grid.getSelectedRows();
-      if(rows.length === 1 && confirm("¿Eliminar este registro?")){
-        const id = rows[0].getData().id;
-        try{
-          await axios.delete(`{{ url_for('admin.api_depositos_delete', dep_id=0) }}`.replace("0", id));
-          rows[0].delete();
-        }catch(err){
-          alert("No se pudo eliminar: " + (err.response?.data?.error || err.message));
-        }
-      }
-    }
-  });
+  // Carga inicial
+  grid.setData(buildApiUrl());
 </script>
-{% endblock %}
+</body>
+</html>
