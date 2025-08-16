@@ -1,6 +1,0 @@
-flask
-gunicorn
-requests
-msal
-python-dotenv
-openpyxl
