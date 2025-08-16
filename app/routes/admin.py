@@ -1,138 +1,151 @@
 # app/routes/admin.py
-from flask import Blueprint, render_template, redirect, request, flash, url_for, session, jsonify, current_app
-from functools import wraps
-from decimal import Decimal, InvalidOperation
-from datetime import datetime
-from ..models import Deposito, Comprobante
+from flask import (
+    Blueprint, render_template, request, redirect, url_for,
+    flash, jsonify, session, current_app, abort
+)
+from werkzeug.security import safe_str_cmp
 from ..extensions import db
+from ..models import Deposito, Comprobante
 from ..storage.base import get_storage
 
 bp = Blueprint("admin", __name__, url_prefix="/admin")
 
-# --------- Auth helpers ---------
-def admin_required(f):
-    @wraps(f)
-    def _wrap(*args, **kwargs):
-        if not session.get("admin_authed"):
-            return redirect(url_for("admin.login", next=request.path))
-        return f(*args, **kwargs)
-    return _wrap
+# ---------- auth mínima ----------
+def _is_authed():
+    return bool(session.get("admin_authed"))
+
+def _require_auth():
+    if not _is_authed():
+        return redirect(url_for("admin.login"))
 
 @bp.route("/login", methods=["GET", "POST"])
 def login():
     if request.method == "POST":
-        u = request.form.get("username", "")
-        p = request.form.get("password", "")
-        if u == current_app.config.get("ADMIN_USER") and p == current_app.config.get("ADMIN_PASSWORD"):
+        user = request.form.get("username", "")
+        pwd = request.form.get("password", "")
+        if safe_str_cmp(user, current_app.config["ADMIN_USER"]) and safe_str_cmp(pwd, current_app.config["ADMIN_PASSWORD"]):
             session["admin_authed"] = True
-            nxt = request.args.get("next") or url_for("admin.registros")
-            return redirect(nxt)
-        flash("Credenciales inválidas", "danger")
+            flash("Bienvenido.", "success")
+            return redirect(url_for("admin.registros"))
+        flash("Usuario o contraseña incorrectos.", "danger")
     return render_template("admin/login.html")
 
 @bp.get("/logout")
 def logout():
     session.clear()
+    flash("Sesión cerrada.", "success")
     return redirect(url_for("admin.login"))
 
-# --------- Vistas HTML ---------
+# ---------- vistas ----------
 @bp.get("/registros")
-@admin_required
 def registros():
+    if not _is_authed():
+        return redirect(url_for("admin.login"))
     return render_template("admin/registros.html")
 
-# --------- API para grid ---------
+# ---------- API para el grid ----------
+def _serialize_dep(d: Deposito) -> dict:
+    return {
+        "id": d.id,
+        "fecha_operacion": d.fecha_operacion.isoformat() if d.fecha_operacion else "",
+        "banco": d.banco,
+        "forma_pago": d.forma_pago,
+        "producto": d.producto,
+        "numero_usuario": d.numero_usuario,
+        "importe": str(d.importe) if d.importe is not None else "0.00",
+        "bbva_tipo": d.bbva_tipo or "",
+        "folio": d.folio or "",
+        "autorizacion": d.autorizacion or "",
+        "referencia": d.referencia or "",
+        "requiere_factura": bool(d.requiere_factura),
+        "estatus": d.estatus or "registrado",
+        "observaciones": d.observaciones or "",
+        "comprobante_id": d.comprobante_id,
+    }
+
 @bp.get("/api/depositos")
-@admin_required
 def api_depositos_list():
-    rows = (Deposito.query
-            .order_by(Deposito.created_at.desc())
-            .all())
-    data = []
-    for d in rows:
-        data.append({
-            "id": d.id,
-            "banco": d.banco,
-            "forma_pago": d.forma_pago,
-            "producto": d.producto,
-            "fecha_operacion": d.fecha_operacion.strftime("%Y-%m-%d"),
-            "numero_usuario": f"{d.numero_usuario:05d}",
-            "importe": float(d.importe),
-            "bbva_tipo": d.bbva_tipo or "",
-            "folio": d.folio or "",
-            "autorizacion": d.autorizacion or "",
-            "referencia": d.referencia or "",
-            "requiere_factura": d.requiere_factura,
-            "estatus": d.estatus,
-            "observaciones": d.observaciones or "",
-            "comprobante_id": d.comprobante_id,
-        })
-    return jsonify(data)
+    if not _is_authed():
+        return abort(401)
+
+    # (opcional) filtros simples
+    q_banco = request.args.get("banco")
+    q_forma = request.args.get("forma_pago")
+    q_usuario = request.args.get("numero_usuario")
+
+    query = Deposito.query
+    if q_banco:
+        query = query.filter(Deposito.banco == q_banco)
+    if q_forma:
+        query = query.filter(Deposito.forma_pago == q_forma)
+    if q_usuario:
+        query = query.filter(Deposito.numero_usuario.like(f"%{q_usuario}%"))
+
+    rows = query.order_by(Deposito.id.desc()).all()
+    current_app.logger.info("Admin API -> %d depósito(s) devueltos", len(rows))
+    return jsonify([_serialize_dep(r) for r in rows])
 
 @bp.patch("/api/depositos/<int:dep_id>")
-@admin_required
-def api_depositos_update(dep_id):
-    d = Deposito.query.get_or_404(dep_id)
-    body = request.get_json(force=True) or {}
-    field = body.get("field")
-    value = body.get("value")
+def api_depositos_update(dep_id: int):
+    if not _is_authed():
+        return abort(401)
+    payload = request.get_json(silent=True) or {}
+    field = payload.get("field")
+    value = payload.get("value")
 
-    # Campos permitidos a editar desde el grid
+    dep = Deposito.query.get_or_404(dep_id)
+
+    # Campos permitidos a editar desde grid
     editable = {
-        "banco", "forma_pago", "producto", "fecha_operacion",
+        "fecha_operacion", "banco", "forma_pago", "producto",
         "numero_usuario", "importe", "bbva_tipo", "folio",
         "autorizacion", "referencia", "requiere_factura",
         "estatus", "observaciones"
     }
     if field not in editable:
-        return jsonify({"ok": False, "error": "Campo no editable"}), 400
+        return jsonify({"error": f"Campo no editable: {field}"}), 400
 
+    # Casting básico
     try:
-        if field == "fecha_operacion":
-            d.fecha_operacion = datetime.strptime(value, "%Y-%m-%d").date()
-        elif field == "numero_usuario":
-            if not (str(value).isdigit() and len(str(value)) == 5):
-                return jsonify({"ok": False, "error": "numero_usuario debe ser 5 dígitos"}), 400
-            d.numero_usuario = int(value)
-        elif field == "importe":
-            d.importe = Decimal(str(value))
+        if field == "numero_usuario":
+            value = int(value) if value is not None and str(value).strip() != "" else None
         elif field == "requiere_factura":
-            d.requiere_factura = bool(value)
-        else:
-            setattr(d, field, (value or "").strip())
+            value = bool(value)
+        setattr(dep, field, value)
         db.session.commit()
         return jsonify({"ok": True})
-    except (InvalidOperation, ValueError) as e:
+    except Exception as e:
         db.session.rollback()
-        return jsonify({"ok": False, "error": str(e)}), 400
+        return jsonify({"error": f"No se pudo guardar: {e}"}), 400
 
 @bp.delete("/api/depositos/<int:dep_id>")
-@admin_required
-def api_depositos_delete(dep_id):
-    d = Deposito.query.get_or_404(dep_id)
-    db.session.delete(d)
-    db.session.commit()
-    return jsonify({"ok": True})
-
-# --------- Comprobantes ---------
-@bp.get("/comprobantes/<int:comp_id>/link")
-@admin_required
-def comprobante_link(comp_id: int):
-    comp = Comprobante.query.get_or_404(comp_id)
-    storage = get_storage()
-    # Preferimos compartido; si no, temporal. Si el archivo no existe, mensaje claro.
+def api_depositos_delete(dep_id: int):
+    if not _is_authed():
+        return abort(401)
+    dep = Deposito.query.get_or_404(dep_id)
     try:
-        url = storage.get_shared_link(comp.storage_path)
-    except FileNotFoundError:
-        flash("El comprobante ya no existe en Dropbox (fue eliminado).", "danger")
-        return redirect(url_for("admin.registros"))
-    except Exception as e1:
+        db.session.delete(dep)
+        db.session.commit()
+        return jsonify({"ok": True})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": f"No se pudo eliminar: {e}"}), 400
+
+# ---------- Link de comprobante ----------
+@bp.get("/comprobante/<int:comp_id>/link")
+def comprobante_link(comp_id: int):
+    if not _is_authed():
+        return abort(401)
+    comp = Comprobante.query.get_or_404(comp_id)
+    try:
+        storage = get_storage()
+        # Evita fallar si el archivo ya no existe en Dropbox:
         try:
+            url = storage.get_shared_link(comp.storage_path)  # permanente
+        except Exception:
+            # fallback temporal; si también falla, mostramos mensaje
             url = storage.get_temporary_link(comp.storage_path)
-        except FileNotFoundError:
-            flash("El comprobante ya no existe en Dropbox (fue eliminado).", "danger")
-            return redirect(url_for("admin.registros"))
-        except Exception as e2:
-            flash(f"No se pudo obtener enlace (compartido/temporal fallaron): {e1} / {e2}", "danger")
-            return redirect(url_for("admin.registros"))
-    return redirect(url)
+        return redirect(url)
+    except Exception as e:
+        flash(f"No se pudo obtener enlace: {e}", "danger")
+        return redirect(url_for("admin.registros"))
