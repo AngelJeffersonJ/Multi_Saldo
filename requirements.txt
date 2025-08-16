@@ -1,7 +1,8 @@
-flask
-flask-sqlalchemy
-flask-migrate
+Flask
+Flask-SQLAlchemy
+Flask-Migrate
 gunicorn
 psycopg2-binary
 python-dotenv
 dropbox
+flask-cors          # <-- si vas por la opción A
