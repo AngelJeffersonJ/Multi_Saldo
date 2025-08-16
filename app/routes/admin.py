@@ -149,3 +149,14 @@ def comprobante_link(comp_id: int):
     except Exception as e:
         flash(f"No se pudo obtener enlace: {e}", "danger")
         return redirect(url_for("admin.registros"))
+
+@bp.get("/debug/db")
+def debug_db():
+    if not _is_authed(): return abort(401)
+    from sqlalchemy import inspect
+    info = {
+        "uri": str(current_app.config.get("SQLALCHEMY_DATABASE_URI"))[:60] + "...",
+        "tables": inspect(db.engine).get_table_names(),
+        "count": db.session.query(Deposito).count()
+    }
+    return jsonify(info)
