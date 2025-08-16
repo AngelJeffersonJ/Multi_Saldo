@@ -1,293 +1,217 @@
 {% extends "base.html" %}
-{% block title %}Registros de Depósitos · Multisaldo{% endblock %}
+{% block title %}Registros · Admin · Multisaldo{% endblock %}
 
 {% block content %}
-<div class="container-fluid px-3 px-lg-4">
-  <div class="d-flex align-items-center gap-2 mb-3">
-    <i class="bi bi-table fs-3"></i>
-    <h2 class="m-0">Registros de Depósitos</h2>
+<div class="container-xxl">
+  <div class="d-flex align-items-center mb-3">
+    <h3 class="me-3 mb-0"><i class="bi bi-table me-2"></i>Registros de Depósitos</h3>
+    <span class="text-secondary small">Doble clic para editar. <kbd>Enter</kbd> para guardar. <kbd>Supr</kbd> para eliminar fila seleccionada.</span>
   </div>
 
-  <div class="alert alert-dark-subtle border rounded-3 py-2 mb-3">
-    Doble clic para editar. Enter para guardar. <kbd>Supr</kbd> para eliminar la fila seleccionada.
-  </div>
+  <!-- Mensajes -->
+  <div id="alertBox" class="alert alert-danger d-none" role="alert"></div>
 
   <!-- Filtros -->
-  <div class="d-flex flex-wrap gap-2 mb-3">
-    <input id="fltUsuario" class="form-control" style="max-width:220px" placeholder="Usuario (5 díg.)" inputmode="numeric">
-    <select id="fltBanco" class="form-select" style="max-width:220px">
-      <option value="">Banco (todos)</option>
-      <option>BBVA</option>
-      <option>Banorte</option>
-      <option>Azteca</option>
-      <option>Scotiabank</option>
-      <option>Santander</option>
-    </select>
-    <select id="fltForma" class="form-select" style="max-width:220px">
-      <option value="">Forma (todas)</option>
-      <option>Deposito</option>
-      <option>Transferencia</option>
-    </select>
-    <button id="btnFiltrar" class="btn btn-primary"><i class="bi bi-funnel"></i> Filtrar</button>
-    <button id="btnClear" class="btn btn-outline-secondary"><i class="bi bi-eraser"></i> Limpiar</button>
-
-    <div class="ms-auto"></div>
-
-    <button id="btnAdd" class="btn btn-success"><i class="bi bi-plus-circle"></i> Agregar</button>
-    <button id="btnCsv" class="btn btn-outline-success"><i class="bi bi-filetype-csv"></i> CSV</button>
+  <div class="row g-2 align-items-end mb-3">
+    <div class="col-sm-4 col-md-3 col-lg-3">
+      <label class="form-label">Usuario (5 díg.)</label>
+      <input id="fUsuario" class="form-control" placeholder="12345" inputmode="numeric" pattern="\d{5}">
+    </div>
+    <div class="col-sm-4 col-md-3 col-lg-3">
+      <label class="form-label">Banco</label>
+      <select id="fBanco" class="form-select">
+        <option value="">(todos)</option>
+        <option>BBVA</option><option>Banorte</option><option>Azteca</option>
+        <option>Scotiabank</option><option>Santander</option>
+      </select>
+    </div>
+    <div class="col-sm-4 col-md-3 col-lg-3">
+      <label class="form-label">Forma</label>
+      <select id="fForma" class="form-select">
+        <option value="">(todas)</option>
+        <option>Deposito</option>
+        <option>Transferencia</option>
+      </select>
+    </div>
+    <div class="col-sm-12 col-md-3 col-lg-3 d-flex gap-2">
+      <button id="btnFiltrar" class="btn btn-primary flex-grow-1"><i class="bi bi-funnel me-1"></i>Filtrar</button>
+      <button id="btnLimpiar" class="btn btn-outline-secondary"><i class="bi bi-eraser me-1"></i>Limpiar</button>
+      <button id="btnCSV" class="btn btn-success"><i class="bi bi-filetype-csv me-1"></i>CSV</button>
+    </div>
   </div>
 
   <!-- Grid -->
-  <div id="grid" class="mb-4" style="height: 66vh;"></div>
+  <div class="card shadow-sm">
+    <div class="card-body">
+      <div id="grid" class="table-responsive"></div>
+    </div>
+  </div>
 </div>
 {% endblock %}
 
 {% block head_extra %}
-<!-- Tabulator -->
-<link href="https://unpkg.com/tabulator-tables@5.5.2/dist/css/tabulator.min.css" rel="stylesheet">
+<!-- Tabulator (CSS/JS desde CDN) -->
+<link href="https://unpkg.com/tabulator-tables@6.3.0/dist/css/tabulator.min.css" rel="stylesheet">
+<script src="https://unpkg.com/tabulator-tables@6.3.0/dist/js/tabulator.min.js"></script>
+
 <style>
-  /* Tabulator toma colores de Bootstrap (modo claro/oscuro automático) */
-  .tabulator{
+  /* Integración con Bootstrap: colores según tema */
+  :root[data-bs-theme="light"] .tabulator,
+  :root[data-bs-theme="light"] .tabulator .tabulator-header,
+  :root[data-bs-theme="light"] .tabulator .tabulator-table {
     background-color: var(--bs-body-bg);
     color: var(--bs-body-color);
-    border: 1px solid var(--bs-border-color);
-    border-radius: .5rem;
   }
-  .tabulator .tabulator-header{
-    background-color: var(--bs-tertiary-bg);
-    color: var(--bs-body-color);
+  :root[data-bs-theme="light"] .tabulator .tabulator-header {
     border-bottom: 1px solid var(--bs-border-color);
   }
-  .tabulator .tabulator-col,
-  .tabulator .tabulator-cell{
+  :root[data-bs-theme="light"] .tabulator .tabulator-row {
     border-color: var(--bs-border-color);
   }
-  .tabulator .tabulator-row{
-    background-color: var(--bs-body-bg);
+
+  :root[data-bs-theme="dark"] .tabulator,
+  :root[data-bs-theme="dark"] .tabulator .tabulator-header,
+  :root[data-bs-theme="dark"] .tabulator .tabulator-table {
+    background-color: var(--bs-dark);
+    color: var(--bs-light);
   }
-  .tabulator .tabulator-row:hover{
-    background-color: var(--bs-secondary-bg);
+  :root[data-bs-theme="dark"] .tabulator .tabulator-header {
+    border-bottom: 1px solid rgba(255,255,255,.15);
   }
-  .tabulator .tabulator-row.tabulator-selected{
-    background-color: var(--bs-primary-bg-subtle);
+  :root[data-bs-theme="dark"] .tabulator .tabulator-row {
+    border-color: rgba(255,255,255,.1);
   }
-  .tabulator .tabulator-footer{
-    background-color: var(--bs-tertiary-bg);
-    color: var(--bs-body-color);
-    border-top: 1px solid var(--bs-border-color);
-  }
-  .btn-link-like{
-    text-decoration: none;
-    padding: .15rem .5rem;
-    border-radius: .375rem;
-    border: 1px solid var(--bs-border-color);
-    background: transparent;
+
+  .tabulator .btn-link-like {
+    padding: .25rem .5rem;
+    border-radius: .5rem;
   }
 </style>
 {% endblock %}
 
 {% block body_extra %}
-<script src="https://unpkg.com/tabulator-tables@5.5.2/dist/js/tabulator.min.js"></script>
 <script>
 (() => {
-  // -------- helpers -----
-  const qs  = (s, el=document) => el.querySelector(s);
-  const qsa = (s, el=document) => [...el.querySelectorAll(s)];
-  const toast = (msg, cls="danger") => {
-    // usa alert sencillo (si tienes toasts bs, cámbialo aquí)
-    const div = document.createElement('div');
-    div.className = `alert alert-${cls} alert-dismissible fade show position-fixed top-0 start-50 translate-middle-x mt-3 shadow`;
-    div.style.zIndex = 1080;
-    div.innerHTML = `${msg}<button type="button" class="btn-close" data-bs-dismiss="alert"></button>`;
-    document.body.appendChild(div);
-    setTimeout(() => div.remove(), 5000);
-  };
-
-  const apiList = async (params) => {
-    const r = await fetch(`/admin/api/depositos?${params}`, {credentials:'same-origin'});
-    if (!r.ok) throw new Error(`HTTP ${r.status}`);
-    return await r.json();
-  };
-  const apiCreate = async () => {
-    const r = await fetch(`/admin/api/depositos`, {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({}), // valores por defecto en el servidor
-      credentials:'same-origin'
-    });
-    if (!r.ok) {
-      let txt = await r.text();
-      // cuando el servidor manda HTML de error, quita etiquetas
-      txt = txt.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
-      throw new Error(txt || `HTTP ${r.status}`);
-    }
-    return await r.json();
-  };
-  const apiPatch = async (id, field, value) => {
-    const r = await fetch(`/admin/api/depositos/${id}`, {
-      method: 'PATCH',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({field, value}),
-      credentials:'same-origin'
-    });
-    if (!r.ok) {
-      const msg = await r.text();
-      throw new Error(msg || `HTTP ${r.status}`);
-    }
-    return await r.json();
-  };
-  const apiDelete = async (id) => {
-    const r = await fetch(`/admin/api/depositos/${id}`, {
-      method: 'DELETE',
-      credentials:'same-origin'
-    });
-    if (!r.ok && r.status !== 204) {
-      const msg = await r.text();
-      throw new Error(msg || `HTTP ${r.status}`);
-    }
-  };
-
-  // -------- grid (Tabulator) -----
-  let table;
-  const columns = [
-    {title:"ID", field:"id", width:70, hozAlign:"center", headerSort:true},
-    {title:"Fecha", field:"fecha_operacion", sorter:"string", editor:"input",
-      headerTooltip:"AAAA-MM-DD", width:130
-    },
-    {title:"Banco", field:"banco", editor:"select",
-      editorParams:{values:["BBVA","Banorte","Azteca","Scotiabank","Santander"]}, width:140
-    },
-    {title:"Forma", field:"forma_pago", editor:"select",
-      editorParams:{values:["Deposito","Transferencia"]}, width:140
-    },
-    {title:"Producto", field:"producto", editor:"select",
-      editorParams:{values:["TAE","Pago de servicios"]}, width:170
-    },
-    {title:"Usuario", field:"numero_usuario", editor:"input", width:110},
-    {title:"Importe", field:"importe", editor:"input", hozAlign:"right", width:110},
-    {title:"BBVA tipo", field:"bbva_tipo", editor:"select",
-      editorParams:{values:["","practicaja","caja"]}, width:120
-    },
-    {title:"Folio", field:"folio", editor:"input", width:120},
-    {title:"Autor.", field:"autorizacion", editor:"input", width:120},
-    {title:"Ref.", field:"referencia", editor:"input", width:140},
-    {title:"Factura", field:"requiere_factura", formatter:"tickCross", hozAlign:"center",
-      editor:true, width:100
-    },
-    {title:"Estatus", field:"estatus", editor:"select",
-      editorParams:{values:["registrado","validado","cancelado"]}, width:140
-    },
-    {title:"Obs.", field:"observaciones", editor:"textarea", width:220},
-    {title:"Comprobante", field:"comprobante_id", width:150, hozAlign:"center",
-      formatter:(cell)=>{
-        const id = cell.getValue();
-        if (!id) return "";
-        return `<a class="btn btn-sm btn-outline-primary" href="/admin/comprobante/${id}/link" target="_blank">Comprobante</a>`;
-      }
-    },
-    {title:"", field:"_actions", width:60, hozAlign:"center", headerSort:false, formatter:()=>`<button class="btn btn-sm btn-outline-danger" title="Eliminar"><i class="bi bi-trash"></i></button>`,
-      cellClick: async (e, cell) => {
-        const row = cell.getRow();
-        const id = row.getData().id;
-        if (!id) return;
-        if (!confirm(`Eliminar registro #${id}?`)) return;
-        try {
-          await apiDelete(id);
-          row.delete();
-        } catch(err) {
-          toast(`No se pudo eliminar: ${err.message}`, "danger");
-        }
-      }
-    }
-  ];
-
-  async function loadData(){
-    const p = new URLSearchParams();
-    const u = qs('#fltUsuario').value.trim();
-    const b = qs('#fltBanco').value;
-    const f = qs('#fltForma').value;
-    if (u) p.set('numero_usuario', u);
-    if (b) p.set('banco', b);
-    if (f) p.set('forma_pago', f);
-
-    try {
-      const data = await apiList(p.toString());
-      table.setData(data);
-    } catch(err) {
-      toast(`Error al cargar: ${err.message}`, "danger");
-    }
+  const $alert = document.getElementById('alertBox');
+  function showError(msg) {
+    $alert.textContent = msg;
+    $alert.classList.remove('d-none');
+    setTimeout(() => $alert.classList.add('d-none'), 5000);
   }
 
-  document.addEventListener('DOMContentLoaded', () => {
-    table = new Tabulator("#grid", {
-      height:"66vh",
-      layout:"fitColumns",
-      reactiveData:true,
-      columns,
-      placeholder:"Sin datos",
-      index:"id",
-      selectable:1,
-      rowDblClick: (e,row)=>{ /* Tabulator ya permite editar con dblclick */ },
-      cellEdited: async (cell) => {
-        const row = cell.getRow();
-        const id = row.getData().id;
-        const field = cell.getField();
-        let value = cell.getValue();
-
-        try {
-          const updated = await apiPatch(id, field, value);
-          row.update(updated); // asegura que valores normalizados (fecha/decimal) queden en el grid
-        } catch(err) {
-          // revertir
-          cell.restoreOldValue();
-          toast(`No se pudo guardar: ${err.message}`, "danger");
+  // ------ Grid (Tabulator) ------
+  const grid = new Tabulator("#grid", {
+    height: "65vh",
+    layout: "fitDataStretch",
+    reactiveData: false,
+    placeholder: "Sin datos",
+    index: "id",
+    columns: [
+      { title:"ID", field:"id", hozAlign:"center", width:70, headerSort:true },
+      { title:"Fecha", field:"fecha_operacion", editor:"input", headerSort:true, width:130, validator:["required"] },
+      { title:"Banco", field:"banco", editor:"list", editorParams:{values:["BBVA","Banorte","Azteca","Scotiabank","Santander"]}, width:140 },
+      { title:"Forma", field:"forma_pago", editor:"list", editorParams:{values:["Deposito","Transferencia"]}, width:140 },
+      { title:"Producto", field:"producto", editor:"list", editorParams:{values:["TAE","Pago de servicios"]}, width:180 },
+      { title:"Usuario", field:"numero_usuario", editor:"input", width:120, hozAlign:"center" },
+      { title:"Importe", field:"importe", editor:"input", width:110, formatter:(cell)=> {
+          const v = cell.getValue(); return v ? Number(v).toFixed(2):"0.00";
+      }, hozAlign:"right" },
+      { title:"BBVA tipo", field:"bbva_tipo", editor:"list",
+        editorParams:{values:["","practicaja","caja"]}, width:120 },
+      { title:"Folio", field:"folio", editor:"input", width:130 },
+      { title:"Autor.", field:"autorizacion", editor:"input", width:120 },
+      { title:"Ref.", field:"referencia", editor:"input", width:150 },
+      { title:"Factura", field:"requiere_factura", width:90, hozAlign:"center",
+        formatter:"tickCross", editor:true },
+      { title:"Estatus", field:"estatus", editor:"input", width:140 },
+      { title:"Obs.", field:"observaciones", editor:"textarea", width:250 },
+      { title:"Comprobante", field:"comprobante_id", headerSort:false, hozAlign:"center", width:140,
+        formatter:(cell)=>{
+          const id = cell.getValue();
+          if (!id) return "-";
+          return `<a href="/admin/comprobante/${id}/link" target="_blank" class="btn btn-sm btn-outline-primary btn-link-like"><i class="bi bi-paperclip"></i> Abrir</a>`;
         }
       },
-      keybindings:{
-        "deleteRow": async function(){
-          const row = table.getSelectedRows()[0];
-          if (!row) return;
-          const id = row.getData().id;
-          if (!confirm(`Eliminar registro #${id}?`)) return;
-          try { await apiDelete(id); row.delete(); }
-          catch(err){ toast(`No se pudo eliminar: ${err.message}`, "danger"); }
+    ],
+    cellEdited: async (cell) => {
+      const row = cell.getRow().getData();
+      const field = cell.getField();
+      let value = cell.getValue();
+
+      // normaliza boolean del tickCross
+      if (field === "requiere_factura") value = !!value;
+
+      try {
+        const res = await fetch(`/admin/api/depositos/${row.id}`, {
+          method: "PATCH",
+          headers: {"Content-Type":"application/json"},
+          body: JSON.stringify({ field, value })
+        });
+        if (!res.ok) {
+          const j = await res.json().catch(()=>({error:res.statusText}));
+          throw new Error(j.error || "Error guardando");
         }
-      },
-    });
-
-    // Cargar datos iniciales
-    loadData();
-
-    // Filtros
-    qs('#btnFiltrar').addEventListener('click', loadData);
-    qs('#btnClear').addEventListener('click', ()=>{
-      qs('#fltUsuario').value = "";
-      qs('#fltBanco').value = "";
-      qs('#fltForma').value = "";
-      loadData();
-    });
-
-    // Agregar
-    qs('#btnAdd').addEventListener('click', async ()=>{
-      try{
-        const nuevo = await apiCreate();
-        table.addData([nuevo], true); // al inicio
-        table.selectRow(nuevo.id);
-        // opcional: abrir edición de la primera celda editable
-      }catch(err){
-        toast(`No se pudo crear: ${err.message}`, "danger");
+        const updated = await res.json();
+        cell.getRow().update(updated); // sincroniza con backend
+      } catch (e) {
+        showError("No se pudo guardar: " + e.message);
+        cell.restoreOldValue(); // deshacer en UI
       }
-    });
-
-    // CSV
-    qs('#btnCsv').addEventListener('click', ()=>{
-      table.download("csv", "depositos.csv");
-    });
-
-    // Redibujar cuando cambie el tema (si tu toggle cambia data-bs-theme en <body>)
-    const obs = new MutationObserver(()=> table && table.redraw(true));
-    obs.observe(document.body, {attributes:true, attributeFilter:["data-bs-theme"]});
+    },
+    rowDeselected: ()=>{}, // placeholder
   });
+
+  // DELETE con Supr
+  document.addEventListener("keydown", async (ev) => {
+    if (ev.key !== "Delete") return;
+    const rows = grid.getSelectedRows();
+    if (!rows.length) return;
+    const id = rows[0].getData().id;
+    if (!confirm(`¿Eliminar registro #${id}?`)) return;
+    try {
+      const res = await fetch(`/admin/api/depositos/${id}`, { method: "DELETE" });
+      if (!res.ok) throw new Error("No se pudo eliminar");
+      rows[0].delete();
+    } catch (e) {
+      showError(e.message);
+    }
+  });
+
+  // ------ Filtros ------
+  async function cargar() {
+    const p = new URLSearchParams();
+    const u = document.getElementById('fUsuario').value.trim();
+    const b = document.getElementById('fBanco').value;
+    const f = document.getElementById('fForma').value;
+    if (u) p.set("numero_usuario", u);
+    if (b) p.set("banco", b);
+    if (f) p.set("forma_pago", f);
+
+    try {
+      const res = await fetch(`/admin/api/depositos?${p.toString()}`);
+      const data = await res.json();
+      grid.setData(data);
+    } catch (e) {
+      showError("No se pudo cargar: " + e.message);
+    }
+  }
+  document.getElementById('btnFiltrar').addEventListener('click', cargar);
+  document.getElementById('btnLimpiar').addEventListener('click', () => {
+    document.getElementById('fUsuario').value = "";
+    document.getElementById('fBanco').value = "";
+    document.getElementById('fForma').value = "";
+    cargar();
+  });
+  document.getElementById('btnCSV').addEventListener('click', () => {
+    grid.download("csv", `depositos_${new Date().toISOString().slice(0,10)}.csv`);
+  });
+
+  // carga inicial
+  cargar();
+
+  // Si el usuario cambia el tema (si tienes un toggle), refrescamos estilos de Tabulator
+  const obs = new MutationObserver(() => grid.redraw(true));
+  obs.observe(document.documentElement, { attributes:true, attributeFilter:["data-bs-theme"] });
 })();
 </script>
 {% endblock %}
