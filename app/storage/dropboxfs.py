@@ -1,15 +1,14 @@
 # app/storage/dropboxfs.py
 import os
 import uuid
-import dropbox
 from dropbox.exceptions import ApiError, AuthError, BadInputError
+from dropbox import files
+from app.extensions import get_dropbox
 
 class Provider:
-    def __init__(self, app):
-        token = app.config.get("DROPBOX_TOKEN") or os.getenv("DROPBOX_TOKEN")
-        if not token:
-            raise RuntimeError("Falta DROPBOX_TOKEN en entorno/.env")
-        self.dbx = dropbox.Dropbox(token)
+    def __init__(self, app=None):
+        # Inicializa el cliente Dropbox usando refresh token
+        self.dbx = get_dropbox()
         self.base_dir = "/comprobantes"
 
     def _norm_path(self, storage_path: str) -> str:
@@ -22,11 +21,11 @@ class Provider:
         name = f"{uuid.uuid4()}{ext}"
         path = self._norm_path(name)
         try:
-            self.dbx.files_upload(raw_bytes, path, mode=dropbox.files.WriteMode.overwrite)
+            self.dbx.files_upload(raw_bytes, path, mode=files.WriteMode.overwrite)
         except BadInputError as e:
             raise RuntimeError("Dropbox: falta scope 'files.content.write'.") from e
         except AuthError as e:
-            raise RuntimeError("Dropbox: token inválido o expirado.") from e
+            raise RuntimeError("Dropbox: refresh token inválido o credenciales incorrectas.") from e
         except ApiError as e:
             raise RuntimeError(f"Dropbox upload error: {str(e)}") from e
         return name
@@ -40,7 +39,6 @@ class Provider:
             link = self.dbx.sharing_create_shared_link_with_settings(path)
             return link.url
         except ApiError as e:
-            # Si el archivo no existe en Dropbox
             if "not_found" in str(e).lower():
                 raise FileNotFoundError("Archivo eliminado/no encontrado en Dropbox") from e
             raise RuntimeError(f"Dropbox API error al compartir: {str(e)}") from e
