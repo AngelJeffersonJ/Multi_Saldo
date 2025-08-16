@@ -186,10 +186,18 @@
     { headerName:"Folio", field:"folio", editable:true, width:140 },
     { headerName:"Autor.", field:"autorizacion", editable:true, width:120 },
     { headerName:"Ref.", field:"referencia", editable:true, width:160 },
+
+    // --- Facturación ---
     { headerName:"Factura", field:"requiere_factura", width:110,
       editable:true, cellRenderer:'agCheckboxCellRenderer',
       valueSetter:(p)=>{ p.data.requiere_factura = (!!p.newValue); return true; }
     },
+    { headerName:"Razón social", field:"factura_titulo", editable:false, minWidth:220, flex:1,
+      tooltipField:'factura_titulo'
+    },
+    { headerName:"RFC", field:"factura_rfc", editable:false, width:130, tooltipField:'factura_rfc' },
+    { headerName:"Email", field:"factura_email", editable:false, minWidth:220, tooltipField:'factura_email' },
+
     { headerName:"Estatus", field:"estatus", editable:true, width:140 },
     { headerName:"Obs.", field:"observaciones", editable:true, minWidth:240, flex:1 },
     { headerName:"Comprobante", field:"comprobante_id", width:150, editable:false, sortable:false,
@@ -279,6 +287,9 @@
         const txt = await res.text();
         throw new Error(`PATCH ${res.status}: ${txt}`);
       }
+      // opcional: refrescar fila devuelta por el servidor
+      const updated = await res.json();
+      ev.node.setData(updated);
     }catch(e){
       showError('No se pudo guardar: '+e.message);
       ev.node.setDataValue(field, ev.oldValue);
