@@ -4,8 +4,9 @@ from flask import (
     flash, jsonify, session, current_app, abort
 )
 from hmac import compare_digest
-from decimal import Decimal
-from datetime import date
+from decimal import Decimal, InvalidOperation
+from datetime import date, datetime
+from uuid import uuid4
 from sqlalchemy.exc import SQLAlchemyError
 
 from ..extensions import db
@@ -48,6 +49,25 @@ def registros():
     if not _is_authed():
         return redirect(url_for("admin.login"))
     return render_template("admin/registros.html")
+
+# ---------- util: crear comprobante placeholder ----------
+def _create_placeholder_comprobante() -> Comprobante:
+    """
+    Crea un comprobante ficticio para satisfacer NOT NULL en comprobante_id cuando
+    se añade una fila desde el grid sin archivo real todavía.
+    """
+    dummy = Comprobante(
+        uuid=uuid4().hex,
+        file_name="(pendiente)",
+        mime="application/octet-stream",
+        size=0,
+        checksum_sha256="0"*64,
+        storage_path=f"placeholder/{uuid4().hex}",
+        storage_status="pendiente",
+    )
+    db.session.add(dummy)
+    db.session.flush()  # para obtener dummy.id sin cerrar la transacción
+    return dummy
 
 # ---------- serializador ----------
 def _serialize_dep(d: Deposito) -> dict:
@@ -98,32 +118,38 @@ def api_depositos_create():
 
     payload = request.get_json(silent=True) or {}
 
-    # Valores por defecto seguros (ajusta si tu modelo tiene NOT NULL/constraints)
-    dep = Deposito(
-        fecha_operacion = payload.get("fecha_operacion") or date.today(),
-        banco           = payload.get("banco")         or "BBVA",
-        forma_pago      = payload.get("forma_pago")    or "Deposito",
-        producto        = payload.get("producto")      or "TAE",
-        numero_usuario  = int(payload.get("numero_usuario") or 0),
-        importe         = Decimal(str(payload.get("importe") or "0.00")),
-        bbva_tipo       = payload.get("bbva_tipo")     or None,
-        folio           = payload.get("folio")         or None,
-        autorizacion    = payload.get("autorizacion")  or None,
-        referencia      = payload.get("referencia")    or None,
-        requiere_factura= bool(payload.get("requiere_factura") or False),
-        estatus         = payload.get("estatus")       or "registrado",
-        observaciones   = payload.get("observaciones") or None,
-        comprobante_id  = payload.get("comprobante_id") or None,
-    )
-
     try:
+        # 1) crear comprobante ficticio para cumplir NOT NULL
+        dummy = _create_placeholder_comprobante()
+
+        # 2) defaults seguros (ajusta si tu modelo tiene constraints extra)
+        #    Nota: numero_usuario = 0 temporalmente es válido (puedes editarlo después)
+        dep = Deposito(
+            fecha_operacion = payload.get("fecha_operacion") or date.today(),
+            banco           = payload.get("banco")         or "BBVA",
+            forma_pago      = payload.get("forma_pago")    or "Deposito",
+            producto        = payload.get("producto")      or "TAE",
+            numero_usuario  = int(payload.get("numero_usuario") or 0),
+            importe         = Decimal(str(payload.get("importe") or "0.00")),
+            bbva_tipo       = payload.get("bbva_tipo")     or None,
+            folio           = payload.get("folio")         or None,
+            autorizacion    = payload.get("autorizacion")  or None,
+            referencia      = payload.get("referencia")    or None,
+            requiere_factura= True if payload.get("requiere_factura") in (True, "true", "True", "1", 1) else False,
+            estatus         = payload.get("estatus")       or "registrado",
+            observaciones   = payload.get("observaciones") or None,
+            comprobante_id  = dummy.id,
+            created_at      = datetime.utcnow(),
+            updated_at      = datetime.utcnow(),
+        )
+
         db.session.add(dep)
         db.session.commit()
         return jsonify(_serialize_dep(dep)), 201
-    except SQLAlchemyError as e:
+
+    except (SQLAlchemyError, ValueError, InvalidOperation) as e:
         db.session.rollback()
         current_app.logger.exception("Error al crear depósito")
-        # Devuelve texto simple; el frontend ya limpia HTML si lo hubiera
         return jsonify({"error": f"No se pudo crear: {e}"}), 400
 
 # ---------- API: actualizar ----------
@@ -131,6 +157,7 @@ def api_depositos_create():
 def api_depositos_update(dep_id: int):
     if not _is_authed():
         return abort(401)
+
     payload = request.get_json(silent=True) or {}
     field = payload.get("field")
     value = payload.get("value")
@@ -148,17 +175,21 @@ def api_depositos_update(dep_id: int):
 
     try:
         if field == "numero_usuario":
-            value = int(value) if value not in (None, "", "None") else None
+            value = None if value in (None, "", "None") else int(value)
         elif field == "requiere_factura":
-            # Tabulator envía boolean real; si llega string, normaliza
             value = True if value in (True, "true", "True", "1", 1) else False
-        elif field == "importe" and value not in (None, "", "None"):
-            value = Decimal(str(value))
+        elif field == "importe":
+            value = Decimal(str(value or "0"))
+        elif field == "fecha_operacion" and isinstance(value, str) and value:
+            # ISO date string -> date
+            value = date.fromisoformat(value)
+
         setattr(dep, field, value)
+        dep.updated_at = datetime.utcnow()
         db.session.commit()
-        # devuelve la fila serializada, para normalizar en el grid
         return jsonify(_serialize_dep(dep))
-    except Exception as e:
+
+    except (SQLAlchemyError, ValueError, InvalidOperation) as e:
         db.session.rollback()
         return jsonify({"error": f"No se pudo guardar: {e}"}), 400
 
@@ -167,12 +198,13 @@ def api_depositos_update(dep_id: int):
 def api_depositos_delete(dep_id: int):
     if not _is_authed():
         return abort(401)
+
     dep = Deposito.query.get_or_404(dep_id)
     try:
         db.session.delete(dep)
         db.session.commit()
         return ("", 204)
-    except Exception as e:
+    except SQLAlchemyError as e:
         db.session.rollback()
         return jsonify({"error": f"No se pudo eliminar: {e}"}), 400
 
@@ -187,7 +219,7 @@ def comprobante_link(comp_id: int):
         try:
             url = storage.get_shared_link(comp.storage_path)  # permanente
         except Exception:
-            url = storage.get_temporary_link(comp.storage_path)  # fallback temporal
+            url = storage.get_temporary_link(comp.storage_path)  # temporal
         return redirect(url)
     except Exception as e:
         flash(f"No se pudo obtener enlace: {e}", "danger")
