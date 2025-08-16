@@ -1,22 +1,34 @@
 {% extends "base.html" %}
 {% block title %}Registros · Admin · Multisaldo{% endblock %}
 
+{% block head_extra %}
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ag-grid-community/styles/ag-grid.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ag-grid-community/styles/ag-theme-quartz.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ag-grid-community/styles/ag-theme-quartz-dark.css">
+<script src="https://cdn.jsdelivr.net/npm/ag-grid-community/dist/ag-grid-community.min.noStyle.js"></script>
+<style>
+  /* Altura y pequeños ajustes */
+  #grid { height: 72vh; }
+  .btn-link-like{ padding:.25rem .5rem; border-radius:.5rem; }
+</style>
+{% endblock %}
+
 {% block content %}
 <div class="container-xxl">
   <div class="d-flex align-items-center mb-3">
     <h3 class="me-3 mb-0"><i class="bi bi-table me-2"></i>Registros de Depósitos</h3>
-    <span class="text-secondary small">Doble clic para editar. <kbd>Enter</kbd> para guardar. <kbd>Supr</kbd> para eliminar fila seleccionada.</span>
+    <span class="text-secondary small">Doble clic/F2 para editar, <kbd>Enter</kbd> para guardar, <kbd>Supr</kbd> para eliminar. Copiar/pegar funciona como Excel.</span>
   </div>
 
   <div id="alertBox" class="alert alert-danger d-none" role="alert"></div>
 
   <!-- Filtros -->
   <div class="row g-2 align-items-end mb-3">
-    <div class="col-sm-4 col-md-3 col-lg-3">
+    <div class="col-sm-4 col-md-3">
       <label class="form-label">Usuario (5 díg.)</label>
       <input id="fUsuario" class="form-control" placeholder="12345" inputmode="numeric" pattern="\d{5}">
     </div>
-    <div class="col-sm-4 col-md-3 col-lg-3">
+    <div class="col-sm-4 col-md-3">
       <label class="form-label">Banco</label>
       <select id="fBanco" class="form-select">
         <option value="">(todos)</option>
@@ -24,237 +36,195 @@
         <option>Scotiabank</option><option>Santander</option>
       </select>
     </div>
-    <div class="col-sm-4 col-md-3 col-lg-3">
+    <div class="col-sm-4 col-md-3">
       <label class="form-label">Forma</label>
       <select id="fForma" class="form-select">
         <option value="">(todas)</option>
-        <option>Deposito</option>
-        <option>Transferencia</option>
+        <option>Deposito</option><option>Transferencia</option>
       </select>
     </div>
-    <div class="col-sm-12 col-md-3 col-lg-3 d-flex gap-2">
+    <div class="col-sm-12 col-md-3 d-flex gap-2">
       <button id="btnFiltrar" class="btn btn-primary flex-grow-1"><i class="bi bi-funnel me-1"></i>Filtrar</button>
       <button id="btnLimpiar" class="btn btn-outline-secondary"><i class="bi bi-eraser me-1"></i>Limpiar</button>
       <button id="btnCSV" class="btn btn-success"><i class="bi bi-filetype-csv me-1"></i>CSV</button>
     </div>
   </div>
 
-  <div class="card shadow-sm">
-    <div class="card-body">
-      <div id="grid" class="table-responsive"></div>
-    </div>
-  </div>
+  <div id="grid" class="ag-theme-quartz"></div>
 </div>
-{% endblock %}
-
-{% block head_extra %}
-<link href="https://unpkg.com/tabulator-tables@6.3.0/dist/css/tabulator.min.css" rel="stylesheet">
-<script src="https://unpkg.com/tabulator-tables@6.3.0/dist/js/tabulator.min.js"></script>
-
-<style>
-  /* ======= Tema CLARO ======= */
-  :root[data-bs-theme="light"] .tabulator,
-  :root[data-bs-theme="light"] .tabulator .tabulator-header,
-  :root[data-bs-theme="light"] .tabulator .tabulator-table {
-    background-color: var(--bs-body-bg);
-    color: var(--bs-body-color);
-  }
-  :root[data-bs-theme="light"] .tabulator .tabulator-header,
-  :root[data-bs-theme="light"] .tabulator .tabulator-row {
-    border-color: var(--bs-border-color);
-  }
-  :root[data-bs-theme="light"] .tabulator .tabulator-col,
-  :root[data-bs-theme="light"] .tabulator .tabulator-cell {
-    background-color: var(--bs-body-bg);
-    color: var(--bs-body-color);
-    border-color: var(--bs-border-color);
-  }
-  :root[data-bs-theme="light"] .tabulator .tabulator-row:hover {
-    background-color: var(--bs-secondary-bg);
-  }
-  :root[data-bs-theme="light"] .tabulator .tabulator-row.tabulator-selected {
-    background-color: var(--bs-primary-bg-subtle);
-  }
-  :root[data-bs-theme="light"] .tabulator input,
-  :root[data-bs-theme="light"] .tabulator select,
-  :root[data-bs-theme="light"] .tabulator textarea {
-    background-color: var(--bs-body-bg);
-    color: var(--bs-body-color);
-    border: 1px solid var(--bs-border-color);
-  }
-
-  /* ======= Tema OSCURO ======= */
-  :root[data-bs-theme="dark"] .tabulator,
-  :root[data-bs-theme="dark"] .tabulator .tabulator-header,
-  :root[data-bs-theme="dark"] .tabulator .tabulator-table {
-    background-color: var(--bs-dark);
-    color: var(--bs-light);
-  }
-  :root[data-bs-theme="dark"] .tabulator .tabulator-col,
-  :root[data-bs-theme="dark"] .tabulator .tabulator-cell {
-    background-color: var(--bs-dark);
-    color: var(--bs-light);
-    border-color: rgba(255,255,255,.12);
-  }
-  :root[data-bs-theme="dark"] .tabulator .tabulator-header {
-    border-bottom: 1px solid rgba(255,255,255,.15);
-  }
-  :root[data-bs-theme="dark"] .tabulator .tabulator-row {
-    border-color: rgba(255,255,255,.1);
-  }
-  :root[data-bs-theme="dark"] .tabulator .tabulator-row:hover {
-    background-color: rgba(255,255,255,.05);
-  }
-  :root[data-bs-theme="dark"] .tabulator .tabulator-row.tabulator-selected {
-    background-color: rgba(var(--bs-primary-rgb), .25);
-  }
-  :root[data-bs-theme="dark"] .tabulator input,
-  :root[data-bs-theme="dark"] .tabulator select,
-  :root[data-bs-theme="dark"] .tabulator textarea {
-    background-color: #1c1f23;
-    color: var(--bs-light);
-    border: 1px solid rgba(255,255,255,.2);
-  }
-
-  .tabulator .btn-link-like { padding:.25rem .5rem; border-radius:.5rem; }
-</style>
 {% endblock %}
 
 {% block body_extra %}
 <script>
 (() => {
+  // ---- helpers UI
   const $alert = document.getElementById('alertBox');
-  function showError(msg) {
+  function showError(msg){
     console.error(msg);
-    $alert.textContent = typeof msg === "string" ? msg : (msg?.message || "Error");
+    $alert.textContent = typeof msg === 'string' ? msg : (msg?.message || 'Error');
     $alert.classList.remove('d-none');
-    setTimeout(() => $alert.classList.add('d-none'), 6000);
+    setTimeout(()=> $alert.classList.add('d-none'), 6000);
   }
 
-  // ------ Grid ------
-  const grid = new Tabulator("#grid", {
-    height: "70vh",
-    layout: "fitDataStretch",
-    placeholder: "Sin datos",
-    index: "id",
-    selectable: 1,                // <<<< importante para Supr
-    selectableRollingSelection: true,
-    headerSort: true,
-    columns: [
-      { title:"ID", field:"id", hozAlign:"center", width:70 },
-      { title:"Fecha", field:"fecha_operacion", editor:"input", width:130, validator:["required"] },
-      { title:"Banco", field:"banco", editor:"list", editorParams:{values:["BBVA","Banorte","Azteca","Scotiabank","Santander"]}, width:140 },
-      { title:"Forma", field:"forma_pago", editor:"list", editorParams:{values:["Deposito","Transferencia"]}, width:140 },
-      { title:"Producto", field:"producto", editor:"list", editorParams:{values:["TAE","Pago de servicios"]}, width:200 },
-      { title:"Usuario", field:"numero_usuario", editor:"input", width:120, hozAlign:"center" },
-      { title:"Importe", field:"importe", editor:"input", width:110, hozAlign:"right",
-        formatter:(cell)=>{ const v = cell.getValue(); return v ? Number(v).toFixed(2):"0.00"; } },
-      { title:"BBVA tipo", field:"bbva_tipo", editor:"list", editorParams:{values:["","practicaja","caja"]}, width:120 },
-      { title:"Folio", field:"folio", editor:"input", width:130 },
-      { title:"Autor.", field:"autorizacion", editor:"input", width:120 },
-      { title:"Ref.", field:"referencia", editor:"input", width:150 },
-      { title:"Factura", field:"requiere_factura", formatter:"tickCross", editor:true, width:90, hozAlign:"center" },
-      { title:"Estatus", field:"estatus", editor:"input", width:140 },
-      { title:"Obs.", field:"observaciones", editor:"textarea", width:280 },
-      { title:"Comprobante", field:"comprobante_id", headerSort:false, hozAlign:"center", width:140,
-        formatter:(cell)=>{
-          const id = cell.getValue();
-          return id ? `<a href="/admin/comprobante/${id}/link" target="_blank" class="btn btn-sm btn-outline-primary btn-link-like"><i class="bi bi-paperclip"></i> Abrir</a>` : "-";
-        }
-      },
-    ],
+  // ---- tema claro/oscuro de AG Grid
+  const gridDiv = document.getElementById('grid');
+  function applyTheme(){
+    gridDiv.classList.remove('ag-theme-quartz','ag-theme-quartz-dark');
+    const dark = document.documentElement.getAttribute('data-bs-theme') === 'dark';
+    gridDiv.classList.add(dark ? 'ag-theme-quartz-dark' : 'ag-theme-quartz');
+  }
+  applyTheme();
+  new MutationObserver(applyTheme).observe(document.documentElement, {attributes:true, attributeFilter:['data-bs-theme']});
 
-    // Seleccionar al hacer click en cualquier parte de la fila
-    rowClick: (e, row) => { row.select(); },
-
-    // Edición -> PATCH
-    cellEdited: async (cell) => {
-      const row = cell.getRow().getData();
-      const field = cell.getField();
-      let value = cell.getValue();
-
-      if (field === "requiere_factura") value = !!value;
-
-      try {
-        const res = await fetch(`/admin/api/depositos/${row.id}`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          credentials: "same-origin",
-          body: JSON.stringify({ field, value })
-        });
-        if (!res.ok) {
-          const txt = await res.text();
-          throw new Error(`PATCH ${res.status}: ${txt}`);
-        }
-        const updated = await res.json();
-        cell.getRow().update(updated);  // refleja lo que guardó el backend
-      } catch (e) {
-        showError("No se pudo guardar: " + e.message);
-        cell.restoreOldValue();
+  // ---- definición de columnas
+  const columnDefs = [
+    { headerName:"ID", field:"id", width:90, sortable:true, resizable:true },
+    { headerName:"Fecha", field:"fecha_operacion", editable:true, width:140 },
+    { headerName:"Banco", field:"banco", editable:true, width:140,
+      cellEditor:'agSelectCellEditor',
+      cellEditorParams:{ values:["BBVA","Banorte","Azteca","Scotiabank","Santander"] }
+    },
+    { headerName:"Forma", field:"forma_pago", editable:true, width:150,
+      cellEditor:'agSelectCellEditor',
+      cellEditorParams:{ values:["Deposito","Transferencia"] }
+    },
+    { headerName:"Producto", field:"producto", editable:true, width:190,
+      cellEditor:'agSelectCellEditor',
+      cellEditorParams:{ values:["TAE","Pago de servicios"] }
+    },
+    { headerName:"Usuario", field:"numero_usuario", editable:true, width:130,
+      valueSetter:(p)=>{ p.data.numero_usuario = p.newValue? parseInt(p.newValue,10) || 0 : 0; return true;}
+    },
+    { headerName:"Importe", field:"importe", editable:true, width:120,
+      valueFormatter:(p)=> p.value ? Number(p.value).toFixed(2) : "0.00",
+      valueSetter:(p)=>{ p.data.importe = p.newValue; return true; }
+    },
+    { headerName:"BBVA tipo", field:"bbva_tipo", editable:true, width:130,
+      cellEditor:'agSelectCellEditor',
+      cellEditorParams:{ values:["","practicaja","caja"] }
+    },
+    { headerName:"Folio", field:"folio", editable:true, width:140 },
+    { headerName:"Autor.", field:"autorizacion", editable:true, width:120 },
+    { headerName:"Ref.", field:"referencia", editable:true, width:160 },
+    { headerName:"Factura", field:"requiere_factura", width:110,
+      editable:true, cellRenderer:'agCheckboxCellRenderer',
+      valueSetter:(p)=>{ p.data.requiere_factura = (!!p.newValue); return true; }
+    },
+    { headerName:"Estatus", field:"estatus", editable:true, width:140 },
+    { headerName:"Obs.", field:"observaciones", editable:true, minWidth:240, flex:1 },
+    { headerName:"Comprobante", field:"comprobante_id", width:150,
+      editable:false, sortable:false,
+      cellRenderer:(p)=>{
+        const id = p.value;
+        return id ? `<a href="/admin/comprobante/${id}/link" target="_blank" class="btn btn-sm btn-outline-primary btn-link-like"><i class="bi bi-paperclip"></i> Abrir</a>` : "-";
       }
     },
-  });
+  ];
 
-  // DELETE con tecla Supr
-  document.addEventListener("keydown", async (ev) => {
-    if (ev.key !== "Delete") return;
-    const rows = grid.getSelectedRows();
-    if (!rows.length) return;
-    const id = rows[0].getData().id;
-    if (!confirm(`¿Eliminar registro #${id}?`)) return;
+  // ---- grid options
+  let gridApi;
+  const gridOptions = {
+    columnDefs,
+    rowData: [],
+    rowSelection: 'single',
+    animateRows: true,
+    defaultColDef: { resizable:true, sortable:true, filter:true },
+    enableRangeSelection: true,
+    enableFillHandle: true,
+    undoRedoCellEditing: true,
+    suppressClickEdit: false,       // doble clic o F2 también funciona
+    onCellValueChanged: onCellValueChanged,
+    onGridReady: () => { gridApi.sizeColumnsToFit(); },
+  };
 
-    try {
-      const res = await fetch(`/admin/api/depositos/${id}`, {
-        method: "DELETE",
-        credentials: "same-origin",
-      });
-      if (!res.ok && res.status !== 204) {
-        const txt = await res.text();
-        throw new Error(`DELETE ${res.status}: ${txt}`);
-      }
-      rows[0].delete();
-    } catch (e) {
-      showError(e.message);
-    }
-  });
+  // inicializa
+  gridApi = agGrid.createGrid(gridDiv, gridOptions);
 
-  // ------ Filtros ------
-  async function cargar() {
-    const p = new URLSearchParams();
+  // ---- carga datos (filtros contra backend)
+  async function cargar(){
     const u = document.getElementById('fUsuario').value.trim();
     const b = document.getElementById('fBanco').value;
     const f = document.getElementById('fForma').value;
-    if (u) p.set("numero_usuario", u);
-    if (b) p.set("banco", b);
-    if (f) p.set("forma_pago", f);
+    const q = new URLSearchParams();
+    if (u) q.set('numero_usuario', u);
+    if (b) q.set('banco', b);
+    if (f) q.set('forma_pago', f);
 
-    try {
-      const res = await fetch(`/admin/api/depositos?${p.toString()}`, { credentials: "same-origin" });
-      if (!res.ok) throw new Error(`GET ${res.status}`);
+    try{
+      const res = await fetch(`/admin/api/depositos?${q.toString()}`, {credentials:'same-origin'});
+      if(!res.ok) throw new Error(`GET ${res.status}`);
       const data = await res.json();
-      grid.setData(data);
-    } catch (e) {
-      showError("No se pudo cargar: " + e.message);
-    }
+      gridApi.setGridOption('rowData', data);
+      gridApi.sizeColumnsToFit();
+    }catch(e){ showError('No se pudo cargar: '+e.message); }
   }
 
   document.getElementById('btnFiltrar').addEventListener('click', cargar);
-  document.getElementById('btnLimpiar').addEventListener('click', () => {
-    document.getElementById('fUsuario').value = "";
-    document.getElementById('fBanco').value = "";
-    document.getElementById('fForma').value = "";
+  document.getElementById('btnLimpiar').addEventListener('click', ()=> {
+    document.getElementById('fUsuario').value = '';
+    document.getElementById('fBanco').value = '';
+    document.getElementById('fForma').value = '';
     cargar();
   });
-  document.getElementById('btnCSV').addEventListener('click', () => {
-    grid.download("csv", `depositos_${new Date().toISOString().slice(0,10)}.csv`);
+  document.getElementById('btnCSV').addEventListener('click', ()=> {
+    gridApi.exportDataAsCsv({ fileName:`depositos_${new Date().toISOString().slice(0,10)}.csv` });
   });
 
-  // carga inicial
-  cargar();
+  // ---- edita => PATCH
+  async function onCellValueChanged(ev){
+    // si no hay cambio real, nada
+    if (ev.newValue === ev.oldValue) return;
 
-  // Redibuja si cambias modo claro/oscuro
-  const obs = new MutationObserver(() => grid.redraw(true));
-  obs.observe(document.documentElement, { attributes:true, attributeFilter:["data-bs-theme"] });
+    const id = ev.data.id;
+    const field = ev.colDef.field;
+    let value = ev.newValue;
+
+    // normaliza tipos
+    if (field === 'numero_usuario') value = parseInt(value,10) || 0;
+    if (field === 'requiere_factura') value = !!value;
+
+    try{
+      const res = await fetch(`/admin/api/depositos/${id}`, {
+        method:'PATCH',
+        headers:{'Content-Type':'application/json'},
+        credentials:'same-origin',
+        body: JSON.stringify({field, value})
+      });
+      if(!res.ok){
+        const txt = await res.text();
+        throw new Error(`PATCH ${res.status}: ${txt}`);
+      }
+      // si tu backend devuelve el objeto actualizado, podrías:
+      // const updated = await res.json(); ev.node.setData(updated);
+    }catch(e){
+      showError('No se pudo guardar: '+e.message);
+      // revertir visualmente
+      ev.node.setDataValue(field, ev.oldValue);
+    }
+  }
+
+  // ---- borrar con Supr (DELETE)
+  document.addEventListener('keydown', async (e) => {
+    if (e.key !== 'Delete') return;
+    const sel = gridApi.getSelectedNodes();
+    if (!sel.length) return;
+    const row = sel[0].data;
+    if (!confirm(`¿Eliminar el registro #${row.id}?`)) return;
+
+    try{
+      const res = await fetch(`/admin/api/depositos/${row.id}`, {
+        method:'DELETE', credentials:'same-origin'
+      });
+      if(!res.ok && res.status !== 204){
+        const txt = await res.text();
+        throw new Error(`DELETE ${res.status}: ${txt}`);
+      }
+      gridApi.applyTransaction({ remove:[row] });
+    }catch(e){ showError('No se pudo eliminar: '+e.message); }
+  });
+
+  // primera carga
+  cargar();
 })();
 </script>
 {% endblock %}
