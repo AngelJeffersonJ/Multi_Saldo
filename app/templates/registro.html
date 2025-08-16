@@ -7,17 +7,15 @@
     <div class="card shadow-sm">
       <div class="card-body p-4">
         <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-2">
-          <h3 class="mb-0">
-            <i class="bi bi-table me-2"></i>Registros de Depósitos
-          </h3>
+          <h3 class="mb-0"><i class="bi bi-table me-2"></i>Registros de Depósitos</h3>
           <div class="text-secondary small" id="status">Listo.</div>
         </div>
         <p class="text-secondary mb-3">
-          Doble clic para editar · Enter guarda · <kbd>Supr</kbd> elimina la fila seleccionada ·
+          Doble clic para editar · Enter guarda · <kbd>Supr</kbd> elimina fila ·
           <kbd>Ctrl/Cmd + C / V</kbd> copia/pega.
         </p>
 
-        <!-- Barra de filtros (Bootstrap) -->
+        <!-- Filtros -->
         <div class="row g-2 align-items-center mb-3">
           <div class="col-12 col-md-auto">
             <input id="q-usuario" class="form-control form-control-sm" placeholder="Usuario (5 díg.)" maxlength="5" pattern="\d{5}">
@@ -35,7 +33,6 @@
               <option>Deposito</option><option>Transferencia</option>
             </select>
           </div>
-
           <div class="col-12 col-md-auto ms-md-auto d-flex gap-2">
             <button id="btn-clear" type="button" class="btn btn-outline-secondary btn-sm">
               <i class="bi bi-eraser"></i> Limpiar
@@ -52,25 +49,40 @@
     </div>
   </div>
 </div>
+
+<!-- Modal de vista previa -->
+<div class="modal fade" id="previewModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-xl modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="bi bi-eye me-2"></i>Vista previa del comprobante</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body p-0" style="height:75vh;">
+        <!-- Usamos iframe para que muestre JPG/PNG/PDF de Dropbox -->
+        <iframe id="previewFrame" title="Comprobante" style="width:100%;height:100%;border:0;"></iframe>
+      </div>
+    </div>
+  </div>
+</div>
 {% endblock %}
 
 {% block body_extra %}
-<!-- Tabulator -->
 <link rel="stylesheet" href="https://unpkg.com/tabulator-tables@5.5.2/dist/css/tabulator.min.css">
 <script src="https://unpkg.com/tabulator-tables@5.5.2/dist/js/tabulator.min.js"></script>
 
 <style>
-  /* Integra con Bootstrap (claro/oscuro) */
   .tabulator{border:1px solid var(--bs-border-color); border-radius:.5rem;}
   .tabulator .tabulator-header{background:var(--bs-body-bg); border-bottom:1px solid var(--bs-border-color);}
   .tabulator .tabulator-col,.tabulator .tabulator-cell{border-right:1px solid var(--bs-border-color);}
   .tabulator .tabulator-row{background:var(--bs-body-bg);}
-  .tabulator-row.tabulator-selected{background:rgba(13,110,253,.1);}
+  .tabulator-row.tabulator-selected{background:rgba(13,110,253,.12);}
   .tabulator .tabulator-col .tabulator-header-filter input,
   .tabulator .tabulator-col .tabulator-header-filter select{
     background:var(--bs-body-bg); color:var(--bs-body-color);
     border:1px solid var(--bs-border-color); border-radius:.375rem; padding:.2rem .35rem;
   }
+  .btn-icon { padding:.25rem .5rem; }
 </style>
 
 <script>
@@ -78,17 +90,43 @@
   const statusEl = document.getElementById('status');
   const setStatus = (t)=>{ statusEl.textContent = t; };
 
-  // Formatter para botón de comprobante
-  function comprobanteFormatter(cell){
-    const compId = cell.getValue();
-    if(!compId) return "";
+  // --- Preview comprobante en modal ---
+  const previewModal = new bootstrap.Modal(document.getElementById('previewModal'));
+  const previewFrame = document.getElementById('previewFrame');
+  function openPreview(compId){
+    if(!compId) return;
     const url = "{{ url_for('admin.comprobante_link', comp_id=0) }}".replace("0", compId);
-    return `<a class="btn btn-outline-primary btn-sm" target="_blank" href="${url}">
-              <i class="bi bi-receipt"></i> Comprobante
-            </a>`;
+    // con Dropbox: el endpoint redirige a un enlace directo; iframe lo carga y muestra
+    previewFrame.src = url;
+    previewModal.show();
   }
 
-  // Guardado remoto por celda
+  // Botones de acciones
+  function accionesFormatter(cell){
+    const data = cell.getRow().getData();
+    const compId = data.comprobante_id;
+
+    const previewBtn = compId
+      ? `<button class="btn btn-outline-primary btn-icon me-1" data-action="preview" title="Ver comprobante">
+           <i class="bi bi-eye"></i>
+         </button>`
+      : '';
+
+    const abrirBtn = compId
+      ? `<a class="btn btn-outline-secondary btn-icon me-1" target="_blank"
+            href="{{ url_for('admin.comprobante_link', comp_id=0) }}".replace("0","${compId}") title="Abrir en pestaña">
+           <i class="bi bi-box-arrow-up-right"></i>
+         </a>`
+      : '';
+
+    const editarBtn = `<button class="btn btn-outline-warning btn-icon" data-action="edit" title="Editar fila">
+                         <i class="bi bi-pencil-square"></i>
+                       </button>`;
+
+    return previewBtn + abrirBtn + editarBtn;
+  }
+
+  // Guardado por celda
   async function saveCell(cell){
     const id = cell.getRow().getData().id;
     const field = cell.getField();
@@ -112,7 +150,7 @@
     }
   }
 
-  // Eliminar fila seleccionada (Supr)
+  // Eliminar fila con Supr
   async function deleteSelected(){
     const row = grid.getSelectedRows()[0];
     if(!row) return;
@@ -144,12 +182,12 @@
     {title:"Forma", field:"forma_pago", headerFilter:"select",
       editor:"select", editorParams:{values:["Deposito","Transferencia"]}, width:140},
     {title:"Producto", field:"producto", headerFilter:"select",
-      editor:"select", editorParams:{values:["TAE","Pago de servicios"]}, width:160},
+      editor:"select", editorParams:{values:["TAE","Pago de servicios"]}, width:180},
     {title:"Usuario", field:"numero_usuario", headerFilter:"input", editor:"input", width:120,
       validator:["required","integer","min:0","max:99999"]},
     {title:"Importe", field:"importe", headerFilter:"input", editor:"input", hozAlign:"right", width:110},
     {title:"BBVA tipo", field:"bbva_tipo", headerFilter:"select",
-      editor:"select", editorParams:{values:["","practicaja","caja"]}, width:120},
+      editor:"select", editorParams:{values:["","practicaja","caja"]}, width:130},
     {title:"Folio", field:"folio", headerFilter:"input", editor:"input", width:120},
     {title:"Autorización", field:"autorizacion", headerFilter:"input", editor:"input", width:140},
     {title:"Referencia", field:"referencia", headerFilter:"input", editor:"input", width:140},
@@ -159,7 +197,7 @@
       mutatorEdit:(v)=>!!v},
     {title:"Estatus", field:"estatus", headerFilter:"input", editor:"input", width:120},
     {title:"Obs.", field:"observaciones", headerFilter:"input", editor:"textarea", width:220},
-    {title:"", field:"comprobante_id", formatter:comprobanteFormatter, width:150, headerSort:false, hozAlign:"center"},
+    {title:"Acciones", field:"_acciones", width:210, headerSort:false, hozAlign:"center", formatter:accionesFormatter},
   ];
 
   // Grid
@@ -178,12 +216,29 @@
     persistence:{sort:true, filter:true, columns:true},
     placeholder:"Sin registros.",
     ajaxResponse:(url,params,data)=>{ setStatus(`Filas: ${data.length}`); return data; },
-    ajaxError:(xhr)=>{ setStatus("Error al cargar."); },
+    ajaxError:()=>{ setStatus("Error al cargar."); },
     cellEdited: saveCell,
-    keybindings:{ "delete": deleteSelected }
+    keybindings:{ "delete": deleteSelected },
+    rowFormatter:function(row){
+      // delega clicks de los botones de acción
+      row.getElement().addEventListener('click', function(ev){
+        const btn = ev.target.closest('button, a');
+        if(!btn) return;
+        const action = btn.dataset.action;
+        const data = row.getData();
+
+        if(action === 'preview'){
+          openPreview(data.comprobante_id);
+        }else if(action === 'edit'){
+          // Enfoca la primera celda editable visible
+          const cells = row.getCells().filter(c=>c.getColumn().getDefinition().editor);
+          if(cells.length){ cells[0].edit(); }
+        }
+      }, {once:false});
+    }
   });
 
-  // Filtros rápidos sincronizados con header filters
+  // Filtros rápidos
   const qUsuario = document.getElementById('q-usuario');
   const qBanco = document.getElementById('q-banco');
   const qForma = document.getElementById('q-forma');
