@@ -8,7 +8,6 @@
     <span class="text-secondary small">Doble clic para editar. <kbd>Enter</kbd> para guardar. <kbd>Supr</kbd> para eliminar fila seleccionada.</span>
   </div>
 
-  <!-- Mensajes -->
   <div id="alertBox" class="alert alert-danger d-none" role="alert"></div>
 
   <!-- Filtros -->
@@ -40,7 +39,6 @@
     </div>
   </div>
 
-  <!-- Grid -->
   <div class="card shadow-sm">
     <div class="card-body">
       <div id="grid" class="table-responsive"></div>
@@ -50,30 +48,53 @@
 {% endblock %}
 
 {% block head_extra %}
-<!-- Tabulator (CSS/JS desde CDN) -->
 <link href="https://unpkg.com/tabulator-tables@6.3.0/dist/css/tabulator.min.css" rel="stylesheet">
 <script src="https://unpkg.com/tabulator-tables@6.3.0/dist/js/tabulator.min.js"></script>
 
 <style>
-  /* Integración con Bootstrap: colores según tema */
+  /* ======= Tema CLARO ======= */
   :root[data-bs-theme="light"] .tabulator,
   :root[data-bs-theme="light"] .tabulator .tabulator-header,
   :root[data-bs-theme="light"] .tabulator .tabulator-table {
     background-color: var(--bs-body-bg);
     color: var(--bs-body-color);
   }
-  :root[data-bs-theme="light"] .tabulator .tabulator-header {
-    border-bottom: 1px solid var(--bs-border-color);
-  }
+  :root[data-bs-theme="light"] .tabulator .tabulator-header,
   :root[data-bs-theme="light"] .tabulator .tabulator-row {
     border-color: var(--bs-border-color);
   }
+  :root[data-bs-theme="light"] .tabulator .tabulator-col,
+  :root[data-bs-theme="light"] .tabulator .tabulator-cell {
+    background-color: var(--bs-body-bg);
+    color: var(--bs-body-color);
+    border-color: var(--bs-border-color);
+  }
+  :root[data-bs-theme="light"] .tabulator .tabulator-row:hover {
+    background-color: var(--bs-secondary-bg);
+  }
+  :root[data-bs-theme="light"] .tabulator .tabulator-row.tabulator-selected {
+    background-color: var(--bs-primary-bg-subtle);
+  }
+  :root[data-bs-theme="light"] .tabulator input,
+  :root[data-bs-theme="light"] .tabulator select,
+  :root[data-bs-theme="light"] .tabulator textarea {
+    background-color: var(--bs-body-bg);
+    color: var(--bs-body-color);
+    border: 1px solid var(--bs-border-color);
+  }
 
+  /* ======= Tema OSCURO ======= */
   :root[data-bs-theme="dark"] .tabulator,
   :root[data-bs-theme="dark"] .tabulator .tabulator-header,
   :root[data-bs-theme="dark"] .tabulator .tabulator-table {
     background-color: var(--bs-dark);
     color: var(--bs-light);
+  }
+  :root[data-bs-theme="dark"] .tabulator .tabulator-col,
+  :root[data-bs-theme="dark"] .tabulator .tabulator-cell {
+    background-color: var(--bs-dark);
+    color: var(--bs-light);
+    border-color: rgba(255,255,255,.12);
   }
   :root[data-bs-theme="dark"] .tabulator .tabulator-header {
     border-bottom: 1px solid rgba(255,255,255,.15);
@@ -81,11 +102,21 @@
   :root[data-bs-theme="dark"] .tabulator .tabulator-row {
     border-color: rgba(255,255,255,.1);
   }
-
-  .tabulator .btn-link-like {
-    padding: .25rem .5rem;
-    border-radius: .5rem;
+  :root[data-bs-theme="dark"] .tabulator .tabulator-row:hover {
+    background-color: rgba(255,255,255,.05);
   }
+  :root[data-bs-theme="dark"] .tabulator .tabulator-row.tabulator-selected {
+    background-color: rgba(var(--bs-primary-rgb), .25);
+  }
+  :root[data-bs-theme="dark"] .tabulator input,
+  :root[data-bs-theme="dark"] .tabulator select,
+  :root[data-bs-theme="dark"] .tabulator textarea {
+    background-color: #1c1f23;
+    color: var(--bs-light);
+    border: 1px solid rgba(255,255,255,.2);
+  }
+
+  .tabulator .btn-link-like { padding:.25rem .5rem; border-radius:.5rem; }
 </style>
 {% endblock %}
 
@@ -94,83 +125,93 @@
 (() => {
   const $alert = document.getElementById('alertBox');
   function showError(msg) {
-    $alert.textContent = msg;
+    console.error(msg);
+    $alert.textContent = typeof msg === "string" ? msg : (msg?.message || "Error");
     $alert.classList.remove('d-none');
-    setTimeout(() => $alert.classList.add('d-none'), 5000);
+    setTimeout(() => $alert.classList.add('d-none'), 6000);
   }
 
-  // ------ Grid (Tabulator) ------
+  // ------ Grid ------
   const grid = new Tabulator("#grid", {
-    height: "65vh",
+    height: "70vh",
     layout: "fitDataStretch",
-    reactiveData: false,
     placeholder: "Sin datos",
     index: "id",
+    selectable: 1,                // <<<< importante para Supr
+    selectableRollingSelection: true,
+    headerSort: true,
     columns: [
-      { title:"ID", field:"id", hozAlign:"center", width:70, headerSort:true },
-      { title:"Fecha", field:"fecha_operacion", editor:"input", headerSort:true, width:130, validator:["required"] },
+      { title:"ID", field:"id", hozAlign:"center", width:70 },
+      { title:"Fecha", field:"fecha_operacion", editor:"input", width:130, validator:["required"] },
       { title:"Banco", field:"banco", editor:"list", editorParams:{values:["BBVA","Banorte","Azteca","Scotiabank","Santander"]}, width:140 },
       { title:"Forma", field:"forma_pago", editor:"list", editorParams:{values:["Deposito","Transferencia"]}, width:140 },
-      { title:"Producto", field:"producto", editor:"list", editorParams:{values:["TAE","Pago de servicios"]}, width:180 },
+      { title:"Producto", field:"producto", editor:"list", editorParams:{values:["TAE","Pago de servicios"]}, width:200 },
       { title:"Usuario", field:"numero_usuario", editor:"input", width:120, hozAlign:"center" },
-      { title:"Importe", field:"importe", editor:"input", width:110, formatter:(cell)=> {
-          const v = cell.getValue(); return v ? Number(v).toFixed(2):"0.00";
-      }, hozAlign:"right" },
-      { title:"BBVA tipo", field:"bbva_tipo", editor:"list",
-        editorParams:{values:["","practicaja","caja"]}, width:120 },
+      { title:"Importe", field:"importe", editor:"input", width:110, hozAlign:"right",
+        formatter:(cell)=>{ const v = cell.getValue(); return v ? Number(v).toFixed(2):"0.00"; } },
+      { title:"BBVA tipo", field:"bbva_tipo", editor:"list", editorParams:{values:["","practicaja","caja"]}, width:120 },
       { title:"Folio", field:"folio", editor:"input", width:130 },
       { title:"Autor.", field:"autorizacion", editor:"input", width:120 },
       { title:"Ref.", field:"referencia", editor:"input", width:150 },
-      { title:"Factura", field:"requiere_factura", width:90, hozAlign:"center",
-        formatter:"tickCross", editor:true },
+      { title:"Factura", field:"requiere_factura", formatter:"tickCross", editor:true, width:90, hozAlign:"center" },
       { title:"Estatus", field:"estatus", editor:"input", width:140 },
-      { title:"Obs.", field:"observaciones", editor:"textarea", width:250 },
+      { title:"Obs.", field:"observaciones", editor:"textarea", width:280 },
       { title:"Comprobante", field:"comprobante_id", headerSort:false, hozAlign:"center", width:140,
         formatter:(cell)=>{
           const id = cell.getValue();
-          if (!id) return "-";
-          return `<a href="/admin/comprobante/${id}/link" target="_blank" class="btn btn-sm btn-outline-primary btn-link-like"><i class="bi bi-paperclip"></i> Abrir</a>`;
+          return id ? `<a href="/admin/comprobante/${id}/link" target="_blank" class="btn btn-sm btn-outline-primary btn-link-like"><i class="bi bi-paperclip"></i> Abrir</a>` : "-";
         }
       },
     ],
+
+    // Seleccionar al hacer click en cualquier parte de la fila
+    rowClick: (e, row) => { row.select(); },
+
+    // Edición -> PATCH
     cellEdited: async (cell) => {
       const row = cell.getRow().getData();
       const field = cell.getField();
       let value = cell.getValue();
 
-      // normaliza boolean del tickCross
       if (field === "requiere_factura") value = !!value;
 
       try {
         const res = await fetch(`/admin/api/depositos/${row.id}`, {
           method: "PATCH",
-          headers: {"Content-Type":"application/json"},
+          headers: { "Content-Type": "application/json" },
+          credentials: "same-origin",
           body: JSON.stringify({ field, value })
         });
         if (!res.ok) {
-          const j = await res.json().catch(()=>({error:res.statusText}));
-          throw new Error(j.error || "Error guardando");
+          const txt = await res.text();
+          throw new Error(`PATCH ${res.status}: ${txt}`);
         }
         const updated = await res.json();
-        cell.getRow().update(updated); // sincroniza con backend
+        cell.getRow().update(updated);  // refleja lo que guardó el backend
       } catch (e) {
         showError("No se pudo guardar: " + e.message);
-        cell.restoreOldValue(); // deshacer en UI
+        cell.restoreOldValue();
       }
     },
-    rowDeselected: ()=>{}, // placeholder
   });
 
-  // DELETE con Supr
+  // DELETE con tecla Supr
   document.addEventListener("keydown", async (ev) => {
     if (ev.key !== "Delete") return;
     const rows = grid.getSelectedRows();
     if (!rows.length) return;
     const id = rows[0].getData().id;
     if (!confirm(`¿Eliminar registro #${id}?`)) return;
+
     try {
-      const res = await fetch(`/admin/api/depositos/${id}`, { method: "DELETE" });
-      if (!res.ok) throw new Error("No se pudo eliminar");
+      const res = await fetch(`/admin/api/depositos/${id}`, {
+        method: "DELETE",
+        credentials: "same-origin",
+      });
+      if (!res.ok && res.status !== 204) {
+        const txt = await res.text();
+        throw new Error(`DELETE ${res.status}: ${txt}`);
+      }
       rows[0].delete();
     } catch (e) {
       showError(e.message);
@@ -188,13 +229,15 @@
     if (f) p.set("forma_pago", f);
 
     try {
-      const res = await fetch(`/admin/api/depositos?${p.toString()}`);
+      const res = await fetch(`/admin/api/depositos?${p.toString()}`, { credentials: "same-origin" });
+      if (!res.ok) throw new Error(`GET ${res.status}`);
       const data = await res.json();
       grid.setData(data);
     } catch (e) {
       showError("No se pudo cargar: " + e.message);
     }
   }
+
   document.getElementById('btnFiltrar').addEventListener('click', cargar);
   document.getElementById('btnLimpiar').addEventListener('click', () => {
     document.getElementById('fUsuario').value = "";
@@ -209,7 +252,7 @@
   // carga inicial
   cargar();
 
-  // Si el usuario cambia el tema (si tienes un toggle), refrescamos estilos de Tabulator
+  // Redibuja si cambias modo claro/oscuro
   const obs = new MutationObserver(() => grid.redraw(true));
   obs.observe(document.documentElement, { attributes:true, attributeFilter:["data-bs-theme"] });
 })();
