@@ -11,6 +11,8 @@ from sqlalchemy.exc import SQLAlchemyError
 from ..extensions import db
 from ..models import Deposito, Comprobante
 from ..storage.base import get_storage
+from ..models import FacturaOpcion
+import re
 
 bp = Blueprint("admin", __name__, url_prefix="/admin")
 
@@ -160,6 +162,72 @@ def comprobante_link(comp_id: int):
     except Exception as e:
         flash(f"No se pudo obtener enlace: {e}", "danger")
         return redirect(url_for("admin.registros"))
+
+
+@bp.route("/fiscales", methods=["GET", "POST"])
+def fiscales():
+    if not _is_authed():
+        return redirect(url_for("admin.login"))
+
+    q = (request.args.get("numero_usuario") or "").strip()
+    opciones = []
+    if q.isdigit():
+        opciones = (FacturaOpcion.query
+                    .filter(FacturaOpcion.numero_usuario == int(q))
+                    .order_by(FacturaOpcion.titulo.asc())
+                    .all())
+
+    if request.method == "POST":
+        # alta rápida
+        nu     = (request.form.get("numero_usuario") or "").strip()
+        titulo = (request.form.get("titulo") or "").strip()
+        rfc    = (request.form.get("rfc") or "").strip().upper()
+        email  = (request.form.get("email") or "").strip()
+
+        ok = True
+        if not (nu.isdigit() and len(nu) == 5):
+            flash("El número de usuario debe ser 5 dígitos.", "danger"); ok = False
+        if not titulo:
+            flash("La razón social (título) es obligatoria.", "danger"); ok = False
+        if rfc and not re.match(r"^[A-Z&Ñ]{3,4}\d{6}[A-Z0-9]{3}$", rfc):
+            flash("RFC no tiene formato válido (persona moral/física MX).", "danger"); ok = False
+
+        if ok:
+            fo = FacturaOpcion(numero_usuario=int(nu), titulo=titulo, rfc=rfc, email=email)
+            db.session.add(fo)
+            db.session.commit()
+            flash("Opción fiscal guardada.", "success")
+            return redirect(url_for("admin.fiscales", numero_usuario=nu))
+
+    return render_template("admin/fiscales.html", opciones=opciones, q=q)
+
+@bp.post("/fiscales/<int:oid>/update")
+def fiscales_update(oid: int):
+    if not _is_authed():
+        return abort(401)
+    fo = FacturaOpcion.query.get_or_404(oid)
+    fo.titulo = (request.form.get("titulo") or "").strip()
+    rfc = (request.form.get("rfc") or "").strip().upper()
+    if rfc and not re.match(r"^[A-Z&Ñ]{3,4}\d{6}[A-Z0-9]{3}$", rfc):
+        flash("RFC no tiene formato válido.", "danger")
+    else:
+        fo.rfc = rfc
+    fo.email = (request.form.get("email") or "").strip()
+    db.session.commit()
+    flash("Opción actualizada.", "success")
+    return redirect(url_for("admin.fiscales", numero_usuario=fo.numero_usuario))
+
+
+@bp.post("/fiscales/<int:oid>/delete")
+def fiscales_delete(oid: int):
+    if not _is_authed():
+        return abort(401)
+    fo = FacturaOpcion.query.get_or_404(oid)
+    nu = fo.numero_usuario
+    db.session.delete(fo)
+    db.session.commit()
+    flash("Opción eliminada.", "success")
+    return redirect(url_for("admin.fiscales", numero_usuario=nu))
 
 # ---------- debug ----------
 @bp.get("/debug/db")
