@@ -3,27 +3,31 @@ from flask import (
     Blueprint, render_template, request, redirect, url_for,
     flash, jsonify, session, current_app, abort
 )
-from werkzeug.security import safe_str_cmp
+from hmac import compare_digest  # sustituto de safe_str_cmp
 from ..extensions import db
 from ..models import Deposito, Comprobante
 from ..storage.base import get_storage
 
 bp = Blueprint("admin", __name__, url_prefix="/admin")
 
-# ---------- auth mínima ----------
-def _is_authed():
+# ---------- helpers de auth ----------
+def _consteq(a: str | None, b: str | None) -> bool:
+    """Comparación constante para evitar timing attacks."""
+    a = (a or "").strip()
+    b = (b or "").strip()
+    # compare_digest opera sobre str a partir de Py3.3; también vale .encode()
+    return compare_digest(a, b)
+
+def _is_authed() -> bool:
     return bool(session.get("admin_authed"))
 
-def _require_auth():
-    if not _is_authed():
-        return redirect(url_for("admin.login"))
-
+# ---------- auth ----------
 @bp.route("/login", methods=["GET", "POST"])
 def login():
     if request.method == "POST":
         user = request.form.get("username", "")
         pwd = request.form.get("password", "")
-        if safe_str_cmp(user, current_app.config["ADMIN_USER"]) and safe_str_cmp(pwd, current_app.config["ADMIN_PASSWORD"]):
+        if _consteq(user, current_app.config["ADMIN_USER"]) and _consteq(pwd, current_app.config["ADMIN_PASSWORD"]):
             session["admin_authed"] = True
             flash("Bienvenido.", "success")
             return redirect(url_for("admin.registros"))
@@ -68,7 +72,7 @@ def api_depositos_list():
     if not _is_authed():
         return abort(401)
 
-    # (opcional) filtros simples
+    # filtros opcionales
     q_banco = request.args.get("banco")
     q_forma = request.args.get("forma_pago")
     q_usuario = request.args.get("numero_usuario")
@@ -95,7 +99,6 @@ def api_depositos_update(dep_id: int):
 
     dep = Deposito.query.get_or_404(dep_id)
 
-    # Campos permitidos a editar desde grid
     editable = {
         "fecha_operacion", "banco", "forma_pago", "producto",
         "numero_usuario", "importe", "bbva_tipo", "folio",
@@ -105,10 +108,9 @@ def api_depositos_update(dep_id: int):
     if field not in editable:
         return jsonify({"error": f"Campo no editable: {field}"}), 400
 
-    # Casting básico
     try:
         if field == "numero_usuario":
-            value = int(value) if value is not None and str(value).strip() != "" else None
+            value = int(value) if value not in (None, "", "None") else None
         elif field == "requiere_factura":
             value = bool(value)
         setattr(dep, field, value)
@@ -139,12 +141,10 @@ def comprobante_link(comp_id: int):
     comp = Comprobante.query.get_or_404(comp_id)
     try:
         storage = get_storage()
-        # Evita fallar si el archivo ya no existe en Dropbox:
         try:
             url = storage.get_shared_link(comp.storage_path)  # permanente
         except Exception:
-            # fallback temporal; si también falla, mostramos mensaje
-            url = storage.get_temporary_link(comp.storage_path)
+            url = storage.get_temporary_link(comp.storage_path)  # fallback temporal
         return redirect(url)
     except Exception as e:
         flash(f"No se pudo obtener enlace: {e}", "danger")
