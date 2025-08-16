@@ -3,61 +3,149 @@
 
 {% block head_extra %}
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ag-grid-community/styles/ag-grid.css">
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ag-grid-community/styles/ag-theme-quartz.css">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ag-grid-community/styles/ag-theme-quartz-dark.css">
 <script src="https://cdn.jsdelivr.net/npm/ag-grid-community/dist/ag-grid-community.min.noStyle.js"></script>
+
 <style>
-  /* Altura y pequeños ajustes */
-  #grid { height: 72vh; }
-  .btn-link-like{ padding:.25rem .5rem; border-radius:.5rem; }
+  /* -------- Paleta y tuneo del tema oscuro -------- */
+  .ag-theme-quartz-dark.custom-ag {
+    /* Colores base */
+    --ag-font-family: "Inter", system-ui, -apple-system, Segoe UI, Roboto, "Helvetica Neue", Arial, "Noto Sans", "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol";
+    --ag-font-size: 14px;
+    --ag-foreground-color: #e5e7eb;              /* texto */
+    --ag-background-color: #0b1220;              /* fondo grid */
+    --ag-row-hover-color: #0f172a;               /* hover fila */
+    --ag-odd-row-background-color: #0d1426;      /* zebra */
+    --ag-selected-row-background-color: #1f2937; /* selección */
+    --ag-control-panel-background-color: #0b1220;
+
+    /* Bordes */
+    --ag-border-color: #1f2937;
+    --ag-row-border-color: #1f2937;
+    --ag-borders: true;
+
+    /* Header */
+    --ag-header-background-color: #0f172a;
+    --ag-header-foreground-color: #e5e7eb;
+    --ag-header-column-separator-display: block;
+    --ag-header-column-separator-color: #253041;
+
+    /* Filtros/inputs */
+    --ag-input-border-color: #334155;
+    --ag-input-focus-border-color: #6366f1;
+    --ag-toggle-button-on-background-color: #4f46e5;
+
+    /* Focus */
+    --ag-cell-horizontal-border: solid 1px var(--ag-row-border-color);
+    --ag-range-selection-background-color: rgba(99,102,241,.2);
+    --ag-range-selection-border-color: #818cf8;
+
+    /* Check */
+    --ag-checkbox-background-color: #111827;
+    --ag-checkbox-checked-color: #22c55e;
+  }
+
+  /* Altura/espaciado general */
+  #grid { height: 72vh; border-radius: 14px; overflow: hidden; }
+
+  /* Botón “Abrir” dentro de celdas */
+  .btn-cell {
+    display: inline-flex; align-items: center; gap: .4rem;
+    padding: .25rem .55rem; border-radius: 8px;
+    border: 1px solid #334155; color: #93c5fd; text-decoration: none;
+    background: linear-gradient(180deg, #0f172a, #0b1220);
+  }
+  .btn-cell:hover { border-color: #60a5fa; color: #bfdbfe; }
+
+  /* Toolbar sticky arriba */
+  .admin-toolbar {
+    position: sticky; top: 0; z-index: 10;
+    background: linear-gradient(180deg, rgba(2,6,23,.85), rgba(2,6,23,.65));
+    backdrop-filter: blur(6px);
+    border: 1px solid #1f2937; border-radius: 12px;
+    padding: .8rem; margin-bottom: .75rem;
+  }
+
+  .chip {
+    background: #0b1220; border: 1px solid #334155; color: #e5e7eb;
+    border-radius: 10px; padding: .45rem .7rem;
+  }
+  .chip:focus, .chip:hover { border-color: #6366f1; box-shadow: 0 0 0 .08rem rgba(99,102,241,.35); }
+
+  .btn-sleek {
+    border-radius: 10px; border: 1px solid #334155;
+    background: linear-gradient(180deg, #111827, #0b1220);
+    color: #e5e7eb;
+  }
+  .btn-sleek:hover { border-color: #6366f1; color: #fff; }
+  .btn-primary-sleek {
+    background: linear-gradient(180deg, #4f46e5, #4338ca);
+    border-color: #4f46e5;
+  }
+  .btn-success-sleek {
+    background: linear-gradient(180deg, #16a34a, #15803d);
+    border-color: #16a34a;
+  }
+
+  .title-row h3 { color: #e5e7eb }
+  .title-row small { color: #9ca3af }
 </style>
 {% endblock %}
 
 {% block content %}
 <div class="container-xxl">
-  <div class="d-flex align-items-center mb-3">
-    <h3 class="me-3 mb-0"><i class="bi bi-table me-2"></i>Registros de Depósitos</h3>
-    <span class="text-secondary small">Doble clic/F2 para editar, <kbd>Enter</kbd> para guardar, <kbd>Supr</kbd> para eliminar. Copiar/pegar funciona como Excel.</span>
+  <div class="title-row d-flex align-items-center justify-content-between mb-3">
+    <div>
+      <h3 class="mb-1"><i class="bi bi-table me-2"></i>Registros de Depósitos</h3>
+      <small>Edición estilo Excel: doble clic / F2 para editar, <kbd>Enter</kbd> para guardar, <kbd>Supr</kbd> para eliminar. Copiar/pegar y rangos habilitados.</small>
+    </div>
   </div>
 
   <div id="alertBox" class="alert alert-danger d-none" role="alert"></div>
 
-  <!-- Filtros -->
-  <div class="row g-2 align-items-end mb-3">
-    <div class="col-sm-4 col-md-3">
-      <label class="form-label">Usuario (5 díg.)</label>
-      <input id="fUsuario" class="form-control" placeholder="12345" inputmode="numeric" pattern="\d{5}">
-    </div>
-    <div class="col-sm-4 col-md-3">
-      <label class="form-label">Banco</label>
-      <select id="fBanco" class="form-select">
-        <option value="">(todos)</option>
-        <option>BBVA</option><option>Banorte</option><option>Azteca</option>
-        <option>Scotiabank</option><option>Santander</option>
-      </select>
-    </div>
-    <div class="col-sm-4 col-md-3">
-      <label class="form-label">Forma</label>
-      <select id="fForma" class="form-select">
-        <option value="">(todas)</option>
-        <option>Deposito</option><option>Transferencia</option>
-      </select>
-    </div>
-    <div class="col-sm-12 col-md-3 d-flex gap-2">
-      <button id="btnFiltrar" class="btn btn-primary flex-grow-1"><i class="bi bi-funnel me-1"></i>Filtrar</button>
-      <button id="btnLimpiar" class="btn btn-outline-secondary"><i class="bi bi-eraser me-1"></i>Limpiar</button>
-      <button id="btnCSV" class="btn btn-success"><i class="bi bi-filetype-csv me-1"></i>CSV</button>
+  <div class="admin-toolbar">
+    <div class="row g-2 align-items-end">
+      <div class="col-sm-6 col-md-3">
+        <label class="form-label text-secondary">Usuario (5 díg.)</label>
+        <input id="fUsuario" class="form-control chip" placeholder="12345" inputmode="numeric" pattern="\d{5}">
+      </div>
+      <div class="col-sm-6 col-md-3">
+        <label class="form-label text-secondary">Banco</label>
+        <select id="fBanco" class="form-select chip">
+          <option value="">(todos)</option>
+          <option>BBVA</option><option>Banorte</option><option>Azteca</option>
+          <option>Scotiabank</option><option>Santander</option>
+        </select>
+      </div>
+      <div class="col-sm-6 col-md-3">
+        <label class="form-label text-secondary">Forma</label>
+        <select id="fForma" class="form-select chip">
+          <option value="">(todas)</option>
+          <option>Deposito</option><option>Transferencia</option>
+        </select>
+      </div>
+      <div class="col-sm-6 col-md-3">
+        <label class="form-label text-secondary">Densidad</label>
+        <select id="fDensidad" class="form-select chip">
+          <option value="44">Normal</option>
+          <option value="32">Compacta</option>
+        </select>
+      </div>
+      <div class="col-12 d-flex gap-2 mt-2">
+        <button id="btnFiltrar" class="btn btn-primary-sleek"><i class="bi bi-funnel me-1"></i>Filtrar</button>
+        <button id="btnLimpiar" class="btn btn-sleek"><i class="bi bi-eraser me-1"></i>Limpiar</button>
+        <button id="btnCSV" class="btn btn-success-sleek ms-auto"><i class="bi bi-filetype-csv me-1"></i>CSV</button>
+      </div>
     </div>
   </div>
 
-  <div id="grid" class="ag-theme-quartz"></div>
+  <div id="grid" class="ag-theme-quartz-dark custom-ag"></div>
 </div>
 {% endblock %}
 
 {% block body_extra %}
 <script>
 (() => {
-  // ---- helpers UI
   const $alert = document.getElementById('alertBox');
   function showError(msg){
     console.error(msg);
@@ -66,17 +154,9 @@
     setTimeout(()=> $alert.classList.add('d-none'), 6000);
   }
 
-  // ---- tema claro/oscuro de AG Grid
   const gridDiv = document.getElementById('grid');
-  function applyTheme(){
-    gridDiv.classList.remove('ag-theme-quartz','ag-theme-quartz-dark');
-    const dark = document.documentElement.getAttribute('data-bs-theme') === 'dark';
-    gridDiv.classList.add(dark ? 'ag-theme-quartz-dark' : 'ag-theme-quartz');
-  }
-  applyTheme();
-  new MutationObserver(applyTheme).observe(document.documentElement, {attributes:true, attributeFilter:['data-bs-theme']});
 
-  // ---- definición de columnas
+  /* -------- columnas -------- */
   const columnDefs = [
     { headerName:"ID", field:"id", width:90, sortable:true, resizable:true },
     { headerName:"Fecha", field:"fecha_operacion", editable:true, width:140 },
@@ -112,16 +192,17 @@
     },
     { headerName:"Estatus", field:"estatus", editable:true, width:140 },
     { headerName:"Obs.", field:"observaciones", editable:true, minWidth:240, flex:1 },
-    { headerName:"Comprobante", field:"comprobante_id", width:150,
-      editable:false, sortable:false,
+    { headerName:"Comprobante", field:"comprobante_id", width:150, editable:false, sortable:false,
       cellRenderer:(p)=>{
         const id = p.value;
-        return id ? `<a href="/admin/comprobante/${id}/link" target="_blank" class="btn btn-sm btn-outline-primary btn-link-like"><i class="bi bi-paperclip"></i> Abrir</a>` : "-";
+        return id ? `<a class="btn-cell" href="/admin/comprobante/${id}/link" target="_blank">
+                       <i class="bi bi-paperclip"></i> Abrir
+                     </a>` : "-";
       }
     },
   ];
 
-  // ---- grid options
+  /* -------- grid options -------- */
   let gridApi;
   const gridOptions = {
     columnDefs,
@@ -132,15 +213,15 @@
     enableRangeSelection: true,
     enableFillHandle: true,
     undoRedoCellEditing: true,
-    suppressClickEdit: false,       // doble clic o F2 también funciona
+    suppressClickEdit: false,   // dblclick/F2
+    rowHeight: 44,              // cambia con “Densidad”
     onCellValueChanged: onCellValueChanged,
-    onGridReady: () => { gridApi.sizeColumnsToFit(); },
+    onGridReady: () => gridApi.sizeColumnsToFit(),
   };
 
-  // inicializa
   gridApi = agGrid.createGrid(gridDiv, gridOptions);
 
-  // ---- carga datos (filtros contra backend)
+  /* -------- filtros (carga) -------- */
   async function cargar(){
     const u = document.getElementById('fUsuario').value.trim();
     const b = document.getElementById('fBanco').value;
@@ -170,16 +251,20 @@
     gridApi.exportDataAsCsv({ fileName:`depositos_${new Date().toISOString().slice(0,10)}.csv` });
   });
 
-  // ---- edita => PATCH
-  async function onCellValueChanged(ev){
-    // si no hay cambio real, nada
-    if (ev.newValue === ev.oldValue) return;
+  /* -------- densidad -------- */
+  document.getElementById('fDensidad').addEventListener('change', e => {
+    const h = parseInt(e.target.value, 10) || 44;
+    gridApi.setGridOption('rowHeight', h);
+    gridApi.onRowHeightChanged();
+  });
 
+  /* -------- PATCH al editar -------- */
+  async function onCellValueChanged(ev){
+    if (ev.newValue === ev.oldValue) return;
     const id = ev.data.id;
     const field = ev.colDef.field;
     let value = ev.newValue;
 
-    // normaliza tipos
     if (field === 'numero_usuario') value = parseInt(value,10) || 0;
     if (field === 'requiere_factura') value = !!value;
 
@@ -194,16 +279,13 @@
         const txt = await res.text();
         throw new Error(`PATCH ${res.status}: ${txt}`);
       }
-      // si tu backend devuelve el objeto actualizado, podrías:
-      // const updated = await res.json(); ev.node.setData(updated);
     }catch(e){
       showError('No se pudo guardar: '+e.message);
-      // revertir visualmente
       ev.node.setDataValue(field, ev.oldValue);
     }
   }
 
-  // ---- borrar con Supr (DELETE)
+  /* -------- DELETE con Supr -------- */
   document.addEventListener('keydown', async (e) => {
     if (e.key !== 'Delete') return;
     const sel = gridApi.getSelectedNodes();
@@ -223,7 +305,7 @@
     }catch(e){ showError('No se pudo eliminar: '+e.message); }
   });
 
-  // primera carga
+  /* primera carga */
   cargar();
 })();
 </script>
