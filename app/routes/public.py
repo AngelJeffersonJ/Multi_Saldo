@@ -9,6 +9,11 @@ from ..storage.base import get_storage
 
 bp = Blueprint("public", __name__)
 
+@bp.get("/healthz")
+def healthz():
+    # no toca DB ni Dropbox; responde instantáneo
+    return "ok", 200
+
 def _validate(form, has_file: bool):
     errors = []
 

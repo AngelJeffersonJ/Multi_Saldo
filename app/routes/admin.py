@@ -16,6 +16,11 @@ import re
 
 bp = Blueprint("admin", __name__, url_prefix="/admin")
 
+@bp.get("/healthz")
+def healthz():
+    # no toca DB ni Dropbox; responde instantáneo
+    return "ok", 200
+
 # ---------- helpers de auth ----------
 def _consteq(a: str | None, b: str | None) -> bool:
     a = (a or "").strip()

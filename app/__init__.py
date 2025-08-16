@@ -15,16 +15,21 @@ def create_app():
     except Exception:
         pass
 
-    # Inicializar DB
+    # DB
     if not app.config.get("SQLALCHEMY_DATABASE_URI"):
         app.logger.error("Falta SQLALCHEMY_DATABASE_URI: define DATABASE_URL en Railway.")
     db.init_app(app)
 
-    # Importa modelos para que SQLAlchemy los registre (evita el circular)
+    # Importa modelos para que SQLAlchemy los registre (evita circulares)
     with app.app_context():
         from . import models  # noqa: F401
 
-    # Blueprints
+    # Healthcheck MUY ligero (no toca DB ni Dropbox)
+    @app.get("/healthz")
+    def healthz():
+        return "ok", 200
+
+    # Blueprints (solo se registran; nada de trabajo en import)
     from .routes import public, admin
     app.register_blueprint(public.bp)
     app.register_blueprint(admin.bp)
