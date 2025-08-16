@@ -1,103 +1,380 @@
 {% extends "base.html" %}
-{% block title %}Opciones fiscales · Admin{% endblock %}
+{% block title %}Registros · Admin · Multisaldo{% endblock %}
+
+{% block head_extra %}
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ag-grid-community/styles/ag-grid.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ag-grid-community/styles/ag-theme-quartz-dark.css">
+<script src="https://cdn.jsdelivr.net/npm/ag-grid-community/dist/ag-grid-community.min.noStyle.js"></script>
+
+<style>
+  /* -------- Paleta y tuneo del tema oscuro -------- */
+  .ag-theme-quartz-dark.custom-ag {
+    --ag-font-family: "Inter", system-ui, -apple-system, Segoe UI, Roboto, "Helvetica Neue", Arial, "Noto Sans";
+    --ag-font-size: 14px;
+    --ag-foreground-color: #e5e7eb;
+    --ag-background-color: #0b1220;
+    --ag-row-hover-color: #0f172a;
+    --ag-odd-row-background-color: #0d1426;
+    --ag-selected-row-background-color: #1f2937;
+    --ag-control-panel-background-color: #0b1220;
+    --ag-border-color: #1f2937;
+    --ag-row-border-color: #1f2937;
+    --ag-borders: true;
+    --ag-header-background-color: #0f172a;
+    --ag-header-foreground-color: #e5e7eb;
+    --ag-header-column-separator-display: block;
+    --ag-header-column-separator-color: #253041;
+    --ag-input-border-color: #334155;
+    --ag-input-focus-border-color: #6366f1;
+    --ag-toggle-button-on-background-color: #4f46e5;
+    --ag-cell-horizontal-border: solid 1px var(--ag-row-border-color);
+    --ag-range-selection-background-color: rgba(99,102,241,.2);
+    --ag-range-selection-border-color: #818cf8;
+    --ag-checkbox-background-color: #111827;
+    --ag-checkbox-checked-color: #22c55e;
+  }
+
+  #grid { height: 72vh; border-radius: 14px; overflow: hidden; }
+
+  .btn-cell {
+    display: inline-flex; align-items: center; gap: .4rem;
+    padding: .25rem .55rem; border-radius: 8px;
+    border: 1px solid #334155; color: #93c5fd; text-decoration: none;
+    background: linear-gradient(180deg, #0f172a, #0b1220);
+  }
+  .btn-cell:hover { border-color: #60a5fa; color: #bfdbfe; }
+
+  .admin-toolbar {
+    position: sticky; top: 0; z-index: 10;
+    background: linear-gradient(180deg, rgba(2,6,23,.85), rgba(2,6,23,.65));
+    backdrop-filter: blur(6px);
+    border: 1px solid #1f2937; border-radius: 12px;
+    padding: .8rem; margin-bottom: .75rem;
+  }
+
+  .chip {
+    background: #0b1220; border: 1px solid #334155; color: #e5e7eb;
+    border-radius: 10px; padding: .45rem .7rem;
+  }
+  .chip:focus, .chip:hover { border-color: #6366f1; box-shadow: 0 0 0 .08rem rgba(99,102,241,.35); }
+
+  .btn-sleek {
+    border-radius: 10px; border: 1px solid #334155;
+    background: linear-gradient(180deg, #111827, #0b1220);
+    color: #e5e7eb;
+  }
+  .btn-sleek:hover { border-color: #6366f1; color: #fff; }
+  .btn-primary-sleek {
+    background: linear-gradient(180deg, #4f46e5, #4338ca);
+    border-color: #4f46e5;
+  }
+  .btn-success-sleek {
+    background: linear-gradient(180deg, #16a34a, #15803d);
+    border-color: #16a34a;
+  }
+
+  .title-row h3 { color: #e5e7eb }
+  .title-row small { color: #9ca3af }
+
+  .live-indicator {
+    display: inline-flex; align-items: center; gap:.5rem;
+    padding:.35rem .6rem; border-radius:10px;
+    border:1px solid #334155; background:#0b1220; color:#e5e7eb;
+  }
+  .live-dot {
+    width:8px; height:8px; border-radius:50%;
+    background:#16a34a; box-shadow: 0 0 6px 2px rgba(22,163,74,.5);
+  }
+  .live-paused .live-dot { background:#f59e0b; box-shadow:none; }
+</style>
+{% endblock %}
 
 {% block content %}
 <div class="container-xxl">
-  <div class="d-flex align-items-center justify-content-between mb-3">
-    <h3 class="mb-0"><i class="bi bi-receipt-cutoff me-2"></i>Opciones fiscales por usuario</h3>
-    <a href="{{ url_for('admin.registros') }}" class="btn btn-outline-secondary">
-      <i class="bi bi-table"></i> Regresar a registros
-    </a>
+  <div class="title-row d-flex align-items-center justify-content-between mb-3">
+    <div>
+      <h3 class="mb-1"><i class="bi bi-table me-2"></i>Registros de Depósitos</h3>
+      <small>Edición estilo Excel: doble clic / F2 para editar, <kbd>Enter</kbd> para guardar, <kbd>Supr</kbd> para eliminar. Copiar/pegar y rangos habilitados.</small>
+    </div>
+    <div id="liveBadge" class="live-indicator"><span class="live-dot"></span> En vivo</div>
   </div>
 
-  <form class="row g-2 align-items-end mb-4" method="get">
-    <div class="col-sm-4">
-      <label class="form-label">Número de usuario (5 dígitos)</label>
-      <input name="numero_usuario" value="{{ q or '' }}" class="form-control" inputmode="numeric" pattern="\d{5}" placeholder="12345">
-    </div>
-    <div class="col-auto">
-      <button class="btn btn-primary"><i class="bi bi-search"></i> Buscar</button>
-    </div>
-  </form>
+  <div id="alertBox" class="alert alert-danger d-none" role="alert"></div>
 
-  <div class="card shadow-sm mb-4">
-    <div class="card-header">
-      <strong>Agregar opción para un usuario</strong>
-    </div>
-    <div class="card-body">
-      <form method="post" class="row g-3">
-        <div class="col-sm-3">
-          <label class="form-label">Usuario (5 dígitos)</label>
-          <input name="numero_usuario" value="{{ q or '' }}" class="form-control" inputmode="numeric" pattern="\d{5}" required>
-        </div>
-        <div class="col-sm-4">
-          <label class="form-label">Razón social (título)</label>
-          <input name="titulo" class="form-control" placeholder="Empresa SA de CV" required>
-        </div>
-        <div class="col-sm-3">
-          <label class="form-label">RFC</label>
-          <input name="rfc" class="form-control" placeholder="AAA010101AAA" maxlength="13">
-        </div>
-        <div class="col-sm-4">
-          <label class="form-label">Email de facturación</label>
-          <input name="email" type="email" class="form-control" placeholder="facturas@dominio.com">
-        </div>
-        <div class="col-12">
-          <button class="btn btn-success"><i class="bi bi-plus-lg"></i> Guardar opción</button>
-        </div>
-      </form>
+  <div class="admin-toolbar">
+    <div class="row g-2 align-items-end">
+      <div class="col-sm-6 col-md-3">
+        <label class="form-label text-secondary">Usuario (5 díg.)</label>
+        <input id="fUsuario" class="form-control chip" placeholder="12345" inputmode="numeric" pattern="\d{5}">
+      </div>
+      <div class="col-sm-6 col-md-3">
+        <label class="form-label text-secondary">Banco</label>
+        <select id="fBanco" class="form-select chip">
+          <option value="">(todos)</option>
+          <option>BBVA</option><option>Banorte</option><option>Azteca</option>
+          <option>Scotiabank</option><option>Santander</option>
+        </select>
+      </div>
+      <div class="col-sm-6 col-md-3">
+        <label class="form-label text-secondary">Forma</label>
+        <select id="fForma" class="form-select chip">
+          <option value="">(todas)</option>
+          <option>Deposito</option><option>Transferencia</option>
+        </select>
+      </div>
+      <div class="col-sm-6 col-md-3">
+        <label class="form-label text-secondary">Densidad</label>
+        <select id="fDensidad" class="form-select chip">
+          <option value="44">Normal</option>
+          <option value="32">Compacta</option>
+        </select>
+      </div>
+      <div class="col-12 d-flex gap-2 mt-2">
+        <button id="btnFiltrar" class="btn btn-primary-sleek"><i class="bi bi-funnel me-1"></i>Filtrar</button>
+        <button id="btnLimpiar" class="btn btn-sleek"><i class="bi bi-eraser me-1"></i>Limpiar</button>
+        <button id="btnRefrescar" class="btn btn-sleek"><i class="bi bi-arrow-repeat me-1"></i>Refrescar</button>
+        <button id="btnAuto" class="btn btn-sleek"><i class="bi bi-play-fill me-1"></i>Auto</button>
+        <button id="btnCSV" class="btn btn-success-sleek ms-auto"><i class="bi bi-filetype-csv me-1"></i>CSV</button>
+      </div>
     </div>
   </div>
 
-  <div class="card shadow-sm">
-    <div class="card-header d-flex justify-content-between align-items-center">
-      <strong>Opciones registradas {% if q %}para el usuario {{ q }}{% endif %}</strong>
-      <span class="text-secondary small">Edita y guarda por fila</span>
-    </div>
-    <div class="table-responsive">
-      <table class="table table-hover table-sm align-middle mb-0">
-        <thead class="table-dark">
-          <tr>
-            <th>ID</th>
-            <th>Usuario</th>
-            <th>Razón social</th>
-            <th>RFC</th>
-            <th>Email</th>
-            <th class="text-end">Acciones</th>
-          </tr>
-        </thead>
-        <tbody>
-        {% for o in opciones %}
-          <tr>
-            <td>{{ o.id }}</td>
-            <td>{{ o.numero_usuario }}</td>
-            <td>
-              <form method="post" action="{{ url_for('admin.fiscales_update', oid=o.id) }}" class="row g-2 align-items-center">
-                <div class="col-md-4">
-                  <input name="titulo" class="form-control form-control-sm" value="{{ o.titulo }}">
-                </div>
-                <div class="col-md-3">
-                  <input name="rfc" class="form-control form-control-sm" value="{{ o.rfc or '' }}" maxlength="13">
-                </div>
-                <div class="col-md-3">
-                  <input name="email" type="email" class="form-control form-control-sm" value="{{ o.email or '' }}">
-                </div>
-                <div class="col-md-2 text-end">
-                  <button class="btn btn-sm btn-primary"><i class="bi bi-check2"></i> Guardar</button>
-                  <button form="del-{{o.id}}" class="btn btn-sm btn-outline-danger" type="submit">
-                    <i class="bi bi-trash"></i>
-                  </button>
-                </div>
-              </form>
-              <form id="del-{{o.id}}" method="post" action="{{ url_for('admin.fiscales_delete', oid=o.id) }}"></form>
-            </td>
-          </tr>
-        {% else %}
-          <tr><td colspan="6" class="text-center text-secondary py-4">Sin resultados.</td></tr>
-        {% endfor %}
-        </tbody>
-      </table>
-    </div>
-  </div>
+  <div id="grid" class="ag-theme-quartz-dark custom-ag"></div>
 </div>
+{% endblock %}
+
+{% block body_extra %}
+<script>
+(() => {
+  const $alert = document.getElementById('alertBox');
+  const $live  = document.getElementById('liveBadge');
+  const $btnAuto = document.getElementById('btnAuto');
+  const REFRESH_MS = 30000; // <-- cambia aquí si quieres otro intervalo
+  let autoTimer = null;
+  let isEditing = false;
+
+  function showError(msg){
+    console.error(msg);
+    $alert.textContent = typeof msg === 'string' ? msg : (msg?.message || 'Error');
+    $alert.classList.remove('d-none');
+    setTimeout(()=> $alert.classList.add('d-none'), 6000);
+  }
+
+  function setLiveState(running){
+    if (running){
+      $live.classList.remove('live-paused');
+      $live.innerHTML = '<span class="live-dot"></span> En vivo';
+      $btnAuto.innerHTML = '<i class="bi bi-pause-fill me-1"></i>Pausar';
+    } else {
+      $live.classList.add('live-paused');
+      $live.innerHTML = '<span class="live-dot"></span> Pausado';
+      $btnAuto.innerHTML = '<i class="bi bi-play-fill me-1"></i>Auto';
+    }
+  }
+
+  function startAuto(){
+    if (autoTimer) return;
+    setLiveState(true);
+    autoTimer = setInterval(()=>{ if(!isEditing) cargar({preserve:true}); }, REFRESH_MS);
+  }
+  function stopAuto(){
+    if (!autoTimer) return;
+    clearInterval(autoTimer); autoTimer = null;
+    setLiveState(false);
+  }
+
+  const gridDiv = document.getElementById('grid');
+
+  /* -------- columnas -------- */
+  const columnDefs = [
+    { headerName:"ID", field:"id", width:90, sortable:true, resizable:true },
+    { headerName:"Fecha", field:"fecha_operacion", editable:true, width:140 },
+    { headerName:"Banco", field:"banco", editable:true, width:140,
+      cellEditor:'agSelectCellEditor',
+      cellEditorParams:{ values:["BBVA","Banorte","Azteca","Scotiabank","Santander"] }
+    },
+    { headerName:"Forma", field:"forma_pago", editable:true, width:150,
+      cellEditor:'agSelectCellEditor',
+      cellEditorParams:{ values:["Deposito","Transferencia"] }
+    },
+    { headerName:"Producto", field:"producto", editable:true, width:190,
+      cellEditor:'agSelectCellEditor',
+      cellEditorParams:{ values:["TAE","Pago de servicios"] }
+    },
+    { headerName:"Usuario", field:"numero_usuario", editable:true, width:130,
+      valueSetter:(p)=>{ p.data.numero_usuario = p.newValue? parseInt(p.newValue,10) || 0 : 0; return true;}
+    },
+    { headerName:"Importe", field:"importe", editable:true, width:120,
+      valueFormatter:(p)=> p.value ? Number(p.value).toFixed(2) : "0.00",
+      valueSetter:(p)=>{ p.data.importe = p.newValue; return true; }
+    },
+    { headerName:"BBVA tipo", field:"bbva_tipo", editable:true, width:130,
+      cellEditor:'agSelectCellEditor',
+      cellEditorParams:{ values:["","practicaja","caja"] }
+    },
+    { headerName:"Folio", field:"folio", editable:true, width:140 },
+    { headerName:"Autor.", field:"autorizacion", editable:true, width:120 },
+    { headerName:"Ref.", field:"referencia", editable:true, width:160 },
+
+    /* --- Facturación (solo lectura en grid) --- */
+    { headerName:"Factura", field:"requiere_factura", width:110,
+      editable:true, cellRenderer:'agCheckboxCellRenderer',
+      valueSetter:(p)=>{ p.data.requiere_factura = (!!p.newValue); return true; }
+    },
+    { headerName:"Razón social", field:"factura_titulo", editable:false, minWidth:220, flex:1,
+      tooltipField:'factura_titulo'
+    },
+    { headerName:"RFC", field:"factura_rfc", editable:false, width:130, tooltipField:'factura_rfc' },
+    { headerName:"Email", field:"factura_email", editable:false, minWidth:220, tooltipField:'factura_email' },
+
+    { headerName:"Estatus", field:"estatus", editable:true, width:140 },
+    { headerName:"Obs.", field:"observaciones", editable:true, minWidth:240, flex:1 },
+    { headerName:"Comprobante", field:"comprobante_id", width:150, editable:false, sortable:false,
+      cellRenderer:(p)=>{
+        const id = p.value;
+        return id ? `<a class="btn-cell" href="/admin/comprobante/${id}/link" target="_blank">
+                       <i class="bi bi-paperclip"></i> Abrir
+                     </a>` : "-";
+      }
+    },
+  ];
+
+  /* -------- grid options -------- */
+  let gridApi;
+  const gridOptions = {
+    columnDefs,
+    rowData: [],
+    rowSelection: 'single',
+    animateRows: true,
+    defaultColDef: { resizable:true, sortable:true, filter:true },
+    enableRangeSelection: true,
+    enableFillHandle: true,
+    undoRedoCellEditing: true,
+    suppressClickEdit: false,   // dblclick/F2
+    rowHeight: 44,              // cambia con “Densidad”
+    onCellValueChanged: onCellValueChanged,
+    onCellEditingStarted: () => { isEditing = true; stopAuto(); },
+    onCellEditingStopped:  () => { isEditing = false; startAuto(); },
+    onGridReady: () => gridApi.sizeColumnsToFit(),
+  };
+
+  gridApi = agGrid.createGrid(gridDiv, gridOptions);
+
+  /* -------- filtros (carga) -------- */
+  async function cargar(opts={}){
+    const preserve = !!opts.preserve;
+
+    // Guarda selección (para re-seleccionar tras refresh)
+    const prevSelId = preserve ? (gridApi.getSelectedNodes()[0]?.data?.id ?? null) : null;
+
+    const u = document.getElementById('fUsuario').value.trim();
+    const b = document.getElementById('fBanco').value;
+    const f = document.getElementById('fForma').value;
+    const q = new URLSearchParams();
+    if (u) q.set('numero_usuario', u);
+    if (b) q.set('banco', b);
+    if (f) q.set('forma_pago', f);
+
+    try{
+      const res = await fetch(`/admin/api/depositos?${q.toString()}`, {credentials:'same-origin'});
+      if(!res.ok) throw new Error(`GET ${res.status}`);
+      const data = await res.json();
+      gridApi.setGridOption('rowData', data);
+      gridApi.sizeColumnsToFit();
+
+      if (preserve && prevSelId != null){
+        gridApi.forEachNode(node => {
+          if (node.data && node.data.id === prevSelId){
+            node.setSelected(true);
+            gridApi.ensureNodeVisible(node, 'middle');
+          }
+        });
+      }
+    }catch(e){ showError('No se pudo cargar: '+e.message); }
+  }
+
+  document.getElementById('btnFiltrar').addEventListener('click', () => cargar({preserve:false}));
+  document.getElementById('btnLimpiar').addEventListener('click', ()=> {
+    document.getElementById('fUsuario').value = '';
+    document.getElementById('fBanco').value = '';
+    document.getElementById('fForma').value = '';
+    cargar({preserve:false});
+  });
+  document.getElementById('btnCSV').addEventListener('click', ()=> {
+    gridApi.exportDataAsCsv({ fileName:`depositos_${new Date().toISOString().slice(0,10)}.csv` });
+  });
+  document.getElementById('btnRefrescar').addEventListener('click', () => cargar({preserve:true}));
+
+  // Auto refresco: play/pause
+  $btnAuto.addEventListener('click', () => {
+    if (autoTimer) { stopAuto(); } else { startAuto(); }
+  });
+
+  // Refresca al volver la pestaña a primer plano
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) cargar({preserve:true});
+  });
+
+  /* -------- densidad -------- */
+  document.getElementById('fDensidad').addEventListener('change', e => {
+    const h = parseInt(e.target.value, 10) || 44;
+    gridApi.setGridOption('rowHeight', h);
+    gridApi.onRowHeightChanged();
+  });
+
+  /* -------- PATCH al editar -------- */
+  async function onCellValueChanged(ev){
+    if (ev.newValue === ev.oldValue) return;
+    const id = ev.data.id;
+    const field = ev.colDef.field;
+    let value = ev.newValue;
+
+    if (field === 'numero_usuario') value = parseInt(value,10) || 0;
+    if (field === 'requiere_factura') value = !!value;
+
+    try{
+      const res = await fetch(`/admin/api/depositos/${id}`, {
+        method:'PATCH',
+        headers:{'Content-Type':'application/json'},
+        credentials:'same-origin',
+        body: JSON.stringify({field, value})
+      });
+      if(!res.ok){
+        const txt = await res.text();
+        throw new Error(`PATCH ${res.status}: ${txt}`);
+      }
+      const updated = await res.json();
+      // Actualiza la fila con lo que devuelve el servidor (incluye razón social)
+      ev.node.setData(updated);
+    }catch(e){
+      showError('No se pudo guardar: '+e.message);
+      ev.node.setDataValue(field, ev.oldValue);
+    }
+  }
+
+  /* -------- DELETE con Supr -------- */
+  document.addEventListener('keydown', async (e) => {
+    if (e.key !== 'Delete') return;
+    const sel = gridApi.getSelectedNodes();
+    if (!sel.length) return;
+    const row = sel[0].data;
+    if (!confirm(`¿Eliminar el registro #${row.id}?`)) return;
+
+    try{
+      const res = await fetch(`/admin/api/depositos/${row.id}`, {
+        method:'DELETE', credentials:'same-origin'
+      });
+      if(!res.ok && res.status !== 204){
+        const txt = await res.text();
+        throw new Error(`DELETE ${res.status}: ${txt}`);
+      }
+      gridApi.applyTransaction({ remove:[row] });
+    }catch(e){ showError('No se pudo eliminar: '+e.message); }
+  });
+
+  /* primera carga + auto */
+  cargar({preserve:false});
+  startAuto();
+})();
+</script>
 {% endblock %}
