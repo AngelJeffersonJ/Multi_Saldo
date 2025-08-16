@@ -9,28 +9,32 @@ from datetime import date, datetime
 from sqlalchemy.exc import SQLAlchemyError
 
 from ..extensions import db
-from ..models import Deposito, Comprobante
+from ..models import Deposito, Comprobante, FacturaOpcion
 from ..storage.base import get_storage
-from ..models import FacturaOpcion
 import re
 
 bp = Blueprint("admin", __name__, url_prefix="/admin")
 
+
+# ---------------------------- Health ----------------------------
 @bp.get("/healthz")
 def healthz():
-    # no toca DB ni Dropbox; responde instantáneo
+    # No toca DB ni almacenamiento
     return "ok", 200
 
-# ---------- helpers de auth ----------
+
+# ---------------------------- Helpers auth ----------------------------
 def _consteq(a: str | None, b: str | None) -> bool:
     a = (a or "").strip()
     b = (b or "").strip()
     return compare_digest(a, b)
 
+
 def _is_authed() -> bool:
     return bool(session.get("admin_authed"))
 
-# ---------- auth ----------
+
+# ---------------------------- Auth ----------------------------
 @bp.route("/login", methods=["GET", "POST"])
 def login():
     if request.method == "POST":
@@ -43,61 +47,77 @@ def login():
         flash("Usuario o contraseña incorrectos.", "danger")
     return render_template("admin/login.html")
 
+
 @bp.get("/logout")
 def logout():
     session.clear()
     flash("Sesión cerrada.", "success")
     return redirect(url_for("admin.login"))
 
-# ---------- vista ----------
+
+# ---------------------------- Vista ----------------------------
 @bp.get("/registros")
 def registros():
     if not _is_authed():
         return redirect(url_for("admin.login"))
     return render_template("admin/registros.html")
 
-# ---------- util ----------
-def _serialize_dep(d: Deposito) -> dict:
+
+# ---------------------------- Serializadores ----------------------------
+def _serialize_dep_row(dep: Deposito, fo: FacturaOpcion | None) -> dict:
+    """Deposito + (opción fiscal) -> dict para el grid."""
     return {
-        "id": d.id,
-        "fecha_operacion": d.fecha_operacion.isoformat() if d.fecha_operacion else "",
-        "banco": d.banco,
-        "forma_pago": d.forma_pago,
-        "producto": d.producto,
-        "numero_usuario": d.numero_usuario,
-        "importe": str(d.importe) if d.importe is not None else "0.00",
-        "bbva_tipo": d.bbva_tipo or "",
-        "folio": d.folio or "",
-        "autorizacion": d.autorizacion or "",
-        "referencia": d.referencia or "",
-        "requiere_factura": bool(d.requiere_factura),
-        "estatus": d.estatus or "registrado",
-        "observaciones": d.observaciones or "",
-        "comprobante_id": d.comprobante_id,
+        "id": dep.id,
+        "fecha_operacion": dep.fecha_operacion.isoformat() if dep.fecha_operacion else "",
+        "banco": dep.banco,
+        "forma_pago": dep.forma_pago,
+        "producto": dep.producto,
+        "numero_usuario": dep.numero_usuario,
+        "importe": str(dep.importe) if dep.importe is not None else "0.00",
+        "bbva_tipo": dep.bbva_tipo or "",
+        "folio": dep.folio or "",
+        "autorizacion": dep.autorizacion or "",
+        "referencia": dep.referencia or "",
+        "requiere_factura": bool(dep.requiere_factura),
+        "estatus": dep.estatus or "registrado",
+        "observaciones": dep.observaciones or "",
+        "comprobante_id": dep.comprobante_id,
+        "factura_opcion_id": dep.factura_opcion_id,
+        # extras visibles en el grid
+        "factura_titulo": (fo.titulo if fo else None),
+        "factura_rfc": (fo.rfc if fo else None),
+        "factura_email": (fo.email if fo else None),
     }
 
-# ---------- API: listar ----------
+
+# ---------------------------- API: listar ----------------------------
 @bp.get("/api/depositos")
 def api_depositos_list():
     if not _is_authed():
         return abort(401)
 
-    q_banco = request.args.get("banco")
-    q_forma = request.args.get("forma_pago")
-    q_usuario = request.args.get("numero_usuario")
+    q_banco = (request.args.get("banco") or "").strip()
+    q_forma = (request.args.get("forma_pago") or "").strip()
+    q_usuario = (request.args.get("numero_usuario") or "").strip()
 
-    query = Deposito.query
+    # LEFT JOIN para traer la razón social (si existe)
+    query = (db.session.query(Deposito, FacturaOpcion)
+             .outerjoin(FacturaOpcion, Deposito.factura_opcion_id == FacturaOpcion.id))
+
     if q_banco:
         query = query.filter(Deposito.banco == q_banco)
     if q_forma:
         query = query.filter(Deposito.forma_pago == q_forma)
     if q_usuario:
+        # permite prefijos; si sólo quieres exacto, cambia por ==
         query = query.filter(Deposito.numero_usuario.like(f"%{q_usuario}%"))
 
     rows = query.order_by(Deposito.id.desc()).all()
-    return jsonify([_serialize_dep(r) for r in rows])
+    data = [_serialize_dep_row(dep, fo) for dep, fo in rows]
+    return jsonify(data)
 
-# ---------- API: actualizar (edición real) ----------
+
+# ---------------------------- API: actualizar (edición real) ----------------------------
 @bp.patch("/api/depositos/<int:dep_id>")
 def api_depositos_update(dep_id: int):
     if not _is_authed():
@@ -113,31 +133,43 @@ def api_depositos_update(dep_id: int):
         "fecha_operacion", "banco", "forma_pago", "producto",
         "numero_usuario", "importe", "bbva_tipo", "folio",
         "autorizacion", "referencia", "requiere_factura",
-        "estatus", "observaciones"
+        "estatus", "observaciones",
+        # si más adelante permites elegir explícitamente la opción fiscal:
+        # "factura_opcion_id",
     }
     if field not in editable:
         return jsonify({"error": f"Campo no editable: {field}"}), 400
 
     try:
+        # Normalizaciones de tipo
         if field == "numero_usuario":
             value = None if value in (None, "", "None") else int(value)
         elif field == "requiere_factura":
-            value = True if value in (True, "true", "True", "1", 1) else False
+            value = True if value in (True, "true", "True", "1", 1, "on") else False
         elif field == "importe":
-            value = Decimal(str(value or "0"))
+            # admite "145,00" o "145.00"
+            s = str(value or "0").replace(",", ".")
+            value = Decimal(s)
         elif field == "fecha_operacion" and isinstance(value, str) and value:
             value = date.fromisoformat(value)
+        # elif field == "factura_opcion_id":
+        #     value = None if not value else int(value)
 
         setattr(dep, field, value)
         dep.updated_at = datetime.utcnow()
         db.session.commit()
-        return jsonify(_serialize_dep(dep))
+        # Re-tráelo con join para regresar también la razón social
+        dep_refreshed, fo = (db.session.query(Deposito, FacturaOpcion)
+                             .outerjoin(FacturaOpcion, Deposito.factura_opcion_id == FacturaOpcion.id)
+                             .filter(Deposito.id == dep.id).one())
+        return jsonify(_serialize_dep_row(dep_refreshed, fo))
 
     except (SQLAlchemyError, ValueError, InvalidOperation) as e:
         db.session.rollback()
         return jsonify({"error": f"No se pudo guardar: {e}"}), 400
 
-# ---------- API: eliminar (Supr) ----------
+
+# ---------------------------- API: eliminar (Supr) ----------------------------
 @bp.delete("/api/depositos/<int:dep_id>")
 def api_depositos_delete(dep_id: int):
     if not _is_authed():
@@ -151,7 +183,8 @@ def api_depositos_delete(dep_id: int):
         db.session.rollback()
         return jsonify({"error": f"No se pudo eliminar: {e}"}), 400
 
-# ---------- Link de comprobante ----------
+
+# ---------------------------- Link de comprobante ----------------------------
 @bp.get("/comprobante/<int:comp_id>/link")
 def comprobante_link(comp_id: int):
     if not _is_authed():
@@ -169,6 +202,7 @@ def comprobante_link(comp_id: int):
         return redirect(url_for("admin.registros"))
 
 
+# ---------------------------- Fiscales (gestión de razones sociales) ----------------------------
 @bp.route("/fiscales", methods=["GET", "POST"])
 def fiscales():
     if not _is_authed():
@@ -206,6 +240,7 @@ def fiscales():
 
     return render_template("admin/fiscales.html", opciones=opciones, q=q)
 
+
 @bp.post("/fiscales/<int:oid>/update")
 def fiscales_update(oid: int):
     if not _is_authed():
@@ -234,7 +269,8 @@ def fiscales_delete(oid: int):
     flash("Opción eliminada.", "success")
     return redirect(url_for("admin.fiscales", numero_usuario=nu))
 
-# ---------- debug ----------
+
+# ---------------------------- Debug ----------------------------
 @bp.get("/debug/db")
 def debug_db():
     if not _is_authed():
