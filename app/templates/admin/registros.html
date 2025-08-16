@@ -6,16 +6,20 @@
   <div class="col-12 col-xl-11">
     <div class="card shadow-sm">
       <div class="card-body p-4">
-        <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-2">
-          <h3 class="mb-0"><i class="bi bi-table me-2"></i>Registros de Depósitos</h3>
-          <div class="text-secondary small" id="status">Listo.</div>
-        </div>
-        <p class="text-secondary mb-3">
-          Doble clic para editar · Enter guarda · <kbd>Supr</kbd> elimina fila ·
-          <kbd>Ctrl/Cmd + C / V</kbd> copia/pega.
-        </p>
 
-        <!-- Filtros -->
+        <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-3">
+          <div class="d-flex align-items-center gap-2">
+            <h3 class="mb-0"><i class="bi bi-table me-2"></i>Registros de Depósitos</h3>
+            <span id="status" class="text-secondary small">Listo.</span>
+          </div>
+          <div class="d-flex gap-2">
+            <button id="btn-add" class="btn btn-primary btn-sm"><i class="bi bi-plus-lg"></i> Agregar</button>
+            <button id="btn-del" class="btn btn-outline-danger btn-sm"><i class="bi bi-trash"></i> Eliminar</button>
+            <button id="btn-csv" class="btn btn-success btn-sm"><i class="bi bi-filetype-csv"></i> CSV</button>
+          </div>
+        </div>
+
+        <!-- Filtros rápidos -->
         <div class="row g-2 align-items-center mb-3">
           <div class="col-12 col-md-auto">
             <input id="q-usuario" class="form-control form-control-sm" placeholder="Usuario (5 díg.)" maxlength="5" pattern="\d{5}">
@@ -33,34 +37,29 @@
               <option>Deposito</option><option>Transferencia</option>
             </select>
           </div>
-          <div class="col-12 col-md-auto ms-md-auto d-flex gap-2">
-            <button id="btn-clear" type="button" class="btn btn-outline-secondary btn-sm">
+          <div class="col-12 col-md-auto">
+            <button id="btn-clear" class="btn btn-outline-secondary btn-sm">
               <i class="bi bi-eraser"></i> Limpiar
-            </button>
-            <button id="btn-csv" type="button" class="btn btn-success btn-sm">
-              <i class="bi bi-filetype-csv"></i> CSV
             </button>
           </div>
         </div>
 
-        <!-- Grid -->
         <div id="grid"></div>
       </div>
     </div>
   </div>
 </div>
 
-<!-- Modal de vista previa -->
+<!-- Modal preview comprobante -->
 <div class="modal fade" id="previewModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-xl modal-dialog-centered">
     <div class="modal-content">
       <div class="modal-header">
-        <h5 class="modal-title"><i class="bi bi-eye me-2"></i>Vista previa del comprobante</h5>
-        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+        <h5 class="modal-title"><i class="bi bi-eye me-2"></i>Comprobante</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
       <div class="modal-body p-0" style="height:75vh;">
-        <!-- Usamos iframe para que muestre JPG/PNG/PDF de Dropbox -->
-        <iframe id="previewFrame" title="Comprobante" style="width:100%;height:100%;border:0;"></iframe>
+        <iframe id="previewFrame" style="width:100%;height:100%;border:0;"></iframe>
       </div>
     </div>
   </div>
@@ -72,108 +71,117 @@
 <script src="https://unpkg.com/tabulator-tables@5.5.2/dist/js/tabulator.min.js"></script>
 
 <style>
-  .tabulator{border:1px solid var(--bs-border-color); border-radius:.5rem;}
-  .tabulator .tabulator-header{background:var(--bs-body-bg); border-bottom:1px solid var(--bs-border-color);}
-  .tabulator .tabulator-col,.tabulator .tabulator-cell{border-right:1px solid var(--bs-border-color);}
-  .tabulator .tabulator-row{background:var(--bs-body-bg);}
-  .tabulator-row.tabulator-selected{background:rgba(13,110,253,.12);}
-  .tabulator .tabulator-col .tabulator-header-filter input,
-  .tabulator .tabulator-col .tabulator-header-filter select{
-    background:var(--bs-body-bg); color:var(--bs-body-color);
-    border:1px solid var(--bs-border-color); border-radius:.375rem; padding:.2rem .35rem;
+  /* Tabulator con variables de Bootstrap (se adapta a claro/oscuro) */
+  :root {
+    --grid-bg: var(--bs-body-bg);
+    --grid-fg: var(--bs-body-color);
+    --grid-border: var(--bs-border-color);
+    --grid-row-selected: color-mix(in oklab, var(--bs-primary) 15%, transparent);
+    --grid-header-bg: var(--bs-body-bg);
+  }
+  .tabulator{
+    background:var(--grid-bg);
+    color:var(--grid-fg);
+    border:1px solid var(--grid-border);
+    border-radius:.5rem;
+  }
+  .tabulator .tabulator-header{background:var(--grid-header-bg); border-bottom:1px solid var(--grid-border);}
+  .tabulator .tabulator-col, .tabulator .tabulator-cell{border-right:1px solid var(--grid-border);}
+  .tabulator-row{background:var(--grid-bg);}
+  .tabulator-row.tabulator-selected{background:var(--grid-row-selected);}
+  .tabulator .tabulator-header .tabulator-col .tabulator-header-filter input,
+  .tabulator .tabulator-header .tabulator-col .tabulator-header-filter select{
+    background:var(--grid-bg); color:var(--grid-fg);
+    border:1px solid var(--grid-border); border-radius:.375rem; padding:.2rem .35rem;
   }
   .btn-icon { padding:.25rem .5rem; }
 </style>
 
 <script>
 (function(){
+  const API_LIST   = "{{ url_for('admin.api_depositos_list') }}";                // GET
+  const API_CREATE = "{{ url_for('admin.api_depositos_create') }}";              // POST
+  const API_UPD    = "{{ url_for('admin.api_depositos_update', dep_id=0) }}";    // PATCH (reemplazar 0)
+  const API_DEL    = "{{ url_for('admin.api_depositos_delete', dep_id=0) }}";    // DELETE (reemplazar 0)
+  const LINK_COMP  = "{{ url_for('admin.comprobante_link', comp_id=0) }}";       // GET (redirect)
+
   const statusEl = document.getElementById('status');
   const setStatus = (t)=>{ statusEl.textContent = t; };
 
-  // --- Preview comprobante en modal ---
+  // Preview comprobante (iframe para JPG/PNG/PDF)
   const previewModal = new bootstrap.Modal(document.getElementById('previewModal'));
   const previewFrame = document.getElementById('previewFrame');
   function openPreview(compId){
     if(!compId) return;
-    const url = "{{ url_for('admin.comprobante_link', comp_id=0) }}".replace("0", compId);
-    // con Dropbox: el endpoint redirige a un enlace directo; iframe lo carga y muestra
-    previewFrame.src = url;
+    previewFrame.src = LINK_COMP.replace("0", compId);
     previewModal.show();
   }
 
-  // Botones de acciones
+  // Columnas
   function accionesFormatter(cell){
-    const data = cell.getRow().getData();
-    const compId = data.comprobante_id;
-
+    const d = cell.getRow().getData();
+    const compId = d.comprobante_id;
     const previewBtn = compId
-      ? `<button class="btn btn-outline-primary btn-icon me-1" data-action="preview" title="Ver comprobante">
-           <i class="bi bi-eye"></i>
-         </button>`
+      ? `<button class="btn btn-outline-primary btn-icon me-1" data-action="preview" title="Ver"><i class="bi bi-eye"></i></button>`
       : '';
-
-    const abrirBtn = compId
-      ? `<a class="btn btn-outline-secondary btn-icon me-1" target="_blank"
-            href="{{ url_for('admin.comprobante_link', comp_id=0) }}".replace("0","${compId}") title="Abrir en pestaña">
-           <i class="bi bi-box-arrow-up-right"></i>
-         </a>`
+    const openBtn = compId
+      ? `<a class="btn btn-outline-secondary btn-icon me-1" target="_blank" href="${LINK_COMP.replace('0', compId)}" title="Abrir"><i class="bi bi-box-arrow-up-right"></i></a>`
       : '';
-
-    const editarBtn = `<button class="btn btn-outline-warning btn-icon" data-action="edit" title="Editar fila">
-                         <i class="bi bi-pencil-square"></i>
-                       </button>`;
-
-    return previewBtn + abrirBtn + editarBtn;
+    const editBtn = `<button class="btn btn-outline-warning btn-icon" data-action="edit" title="Editar"><i class="bi bi-pencil-square"></i></button>`;
+    return previewBtn + openBtn + editBtn;
   }
 
-  // Guardado por celda
   async function saveCell(cell){
-    const id = cell.getRow().getData().id;
-    const field = cell.getField();
-    const value = cell.getValue();
+    const row = cell.getRow(), id = row.getData().id;
+    const payload = { field: cell.getField(), value: cell.getValue() };
 
     setStatus("Guardando…");
     try{
-      const res = await fetch(`{{ url_for('admin.api_depositos_update', dep_id=0) }}`.replace("0", id), {
-        method:"PATCH",
-        headers:{"Content-Type":"application/json"},
-        credentials:"same-origin",
-        body:JSON.stringify({field, value})
+      const r = await fetch(API_UPD.replace("0", id), {
+        method:"PATCH", headers:{ "Content-Type":"application/json" }, credentials:"same-origin",
+        body: JSON.stringify(payload)
       });
-      if(!res.ok) throw new Error(await res.text());
+      if(!r.ok) throw new Error(await r.text());
       setStatus("Guardado.");
-    }catch(err){
-      console.error(err);
-      setStatus("Error al guardar.");
-      alert("No se pudo guardar: " + err.message);
-      cell.restoreOldValue();
+    }catch(e){
+      console.error(e); setStatus("Error al guardar."); cell.restoreOldValue();
+      alert("No se pudo guardar: " + e.message);
     }
   }
 
-  // Eliminar fila con Supr
   async function deleteSelected(){
     const row = grid.getSelectedRows()[0];
-    if(!row) return;
+    if(!row) return alert("Selecciona una fila.");
     const id = row.getData().id;
     if(!confirm(`Eliminar depósito #${id}?`)) return;
 
     setStatus("Eliminando…");
     try{
-      const res = await fetch(`{{ url_for('admin.api_depositos_delete', dep_id=0) }}`.replace("0", id), {
-        method:"DELETE",
-        credentials:"same-origin"
-      });
-      if(!res.ok) throw new Error(await res.text());
+      const r = await fetch(API_DEL.replace("0", id), {method:"DELETE", credentials:"same-origin"});
+      if(!r.ok) throw new Error(await r.text());
       row.delete();
       setStatus("Eliminado.");
-    }catch(err){
-      console.error(err);
-      setStatus("Error al eliminar.");
-      alert("No se pudo eliminar: " + err.message);
+    }catch(e){
+      console.error(e); setStatus("Error al eliminar."); alert("No se pudo eliminar: " + e.message);
     }
   }
 
-  // Columnas
+  async function createRow(initial){
+    setStatus("Creando…");
+    try{
+      const r = await fetch(API_CREATE, {
+        method:"POST", headers:{ "Content-Type":"application/json" }, credentials:"same-origin",
+        body: JSON.stringify(initial||{})
+      });
+      if(!r.ok) throw new Error(await r.text());
+      const data = await r.json();
+      grid.addData([data], true);      // prepend
+      setStatus("Creado. Doble-clic para editar.");
+    }catch(e){
+      console.error(e); setStatus("Error al crear."); alert("No se pudo crear: " + e.message);
+    }
+  }
+
   const cols = [
     {title:"ID", field:"id", width:70, hozAlign:"right"},
     {title:"Fecha", field:"fecha_operacion", headerFilter:"input", editor:"input", width:130},
@@ -183,8 +191,7 @@
       editor:"select", editorParams:{values:["Deposito","Transferencia"]}, width:140},
     {title:"Producto", field:"producto", headerFilter:"select",
       editor:"select", editorParams:{values:["TAE","Pago de servicios"]}, width:180},
-    {title:"Usuario", field:"numero_usuario", headerFilter:"input", editor:"input", width:120,
-      validator:["required","integer","min:0","max:99999"]},
+    {title:"Usuario", field:"numero_usuario", headerFilter:"input", editor:"input", width:120},
     {title:"Importe", field:"importe", headerFilter:"input", editor:"input", hozAlign:"right", width:110},
     {title:"BBVA tipo", field:"bbva_tipo", headerFilter:"select",
       editor:"select", editorParams:{values:["","practicaja","caja"]}, width:130},
@@ -193,72 +200,71 @@
     {title:"Referencia", field:"referencia", headerFilter:"input", editor:"input", width:140},
     {title:"Factura", field:"requiere_factura", headerFilter:"select",
       headerFilterParams:{values:{"":"(todas)","true":"Sí","false":"No"}},
-      formatter:"tickCross", hozAlign:"center", width:90, editor:true,
-      mutatorEdit:(v)=>!!v},
+      formatter:"tickCross", hozAlign:"center", width:90, editor:true, mutatorEdit:(v)=>!!v},
     {title:"Estatus", field:"estatus", headerFilter:"input", editor:"input", width:120},
     {title:"Obs.", field:"observaciones", headerFilter:"input", editor:"textarea", width:220},
-    {title:"Acciones", field:"_acciones", width:210, headerSort:false, hozAlign:"center", formatter:accionesFormatter},
+    {title:"Acciones", field:"_a", width:210, headerSort:false, hozAlign:"center", formatter:accionesFormatter},
   ];
 
   // Grid
   const grid = new Tabulator("#grid", {
-    ajaxURL: "{{ url_for('admin.api_depositos_list') }}",
+    ajaxURL: API_LIST,
     ajaxConfig:{method:"GET", credentials:"same-origin"},
     layout:"fitDataStretch",
     height:"70vh",
     columns: cols,
     selectable:1,
-    movableColumns:true,
-    resizableColumns:true,
     clipboard:true,
     clipboardPasteAction:"update",
     history:true,
     persistence:{sort:true, filter:true, columns:true},
     placeholder:"Sin registros.",
-    ajaxResponse:(url,params,data)=>{ setStatus(`Filas: ${data.length}`); return data; },
+    ajaxResponse:(u,p,data)=>{ setStatus(`Filas: ${data.length}`); return data; },
     ajaxError:()=>{ setStatus("Error al cargar."); },
     cellEdited: saveCell,
     keybindings:{ "delete": deleteSelected },
     rowFormatter:function(row){
-      // delega clicks de los botones de acción
-      row.getElement().addEventListener('click', function(ev){
+      row.getElement().addEventListener('click', (ev)=>{
         const btn = ev.target.closest('button, a');
         if(!btn) return;
         const action = btn.dataset.action;
         const data = row.getData();
-
-        if(action === 'preview'){
-          openPreview(data.comprobante_id);
-        }else if(action === 'edit'){
-          // Enfoca la primera celda editable visible
-          const cells = row.getCells().filter(c=>c.getColumn().getDefinition().editor);
-          if(cells.length){ cells[0].edit(); }
+        if(action === 'preview') openPreview(data.comprobante_id);
+        if(action === 'edit'){
+          const c = row.getCells().find(c=>c.getColumn().getDefinition().editor);
+          if(c) c.edit();
         }
-      }, {once:false});
+      });
     }
   });
 
-  // Filtros rápidos
+  // Filtros rápidos (client-side usando header filters)
   const qUsuario = document.getElementById('q-usuario');
-  const qBanco = document.getElementById('q-banco');
-  const qForma = document.getElementById('q-forma');
-  function syncQuick(){
-    grid.setHeaderFilterValue("numero_usuario", qUsuario.value || "");
-    grid.setHeaderFilterValue("banco", qBanco.value || "");
-    grid.setHeaderFilterValue("forma_pago", qForma.value || "");
-  }
+  const qBanco   = document.getElementById('q-banco');
+  const qForma   = document.getElementById('q-forma');
+  const syncQuick = ()=>{
+    grid.setHeaderFilterValue("numero_usuario", qUsuario.value||"");
+    grid.setHeaderFilterValue("banco", qBanco.value||"");
+    grid.setHeaderFilterValue("forma_pago", qForma.value||"");
+  };
   qUsuario.addEventListener('input', syncQuick);
   qBanco.addEventListener('change', syncQuick);
   qForma.addEventListener('change', syncQuick);
-
   document.getElementById('btn-clear').addEventListener('click', ()=>{
-    qUsuario.value=""; qBanco.value=""; qForma.value="";
-    grid.clearHeaderFilter();
+    qUsuario.value=""; qBanco.value=""; qForma.value=""; grid.clearHeaderFilter();
   });
-  document.getElementById('btn-csv').addEventListener('click', ()=> grid.download("csv","depositos.csv"));
 
-  // primera carga
-  grid.setData();
+  // Acciones barra
+  document.getElementById('btn-csv').addEventListener('click', ()=> grid.download("csv","depositos.csv"));
+  document.getElementById('btn-del').addEventListener('click', deleteSelected);
+  document.getElementById('btn-add').addEventListener('click', ()=>{
+    // Crea registro mínimo; el backend completará defaults
+    createRow({ banco:"BBVA", forma_pago:"Deposito", producto:"TAE", estatus:"registrado" });
+  });
+
+  // Sincronizar tema (por si cambias claro/oscuro en la barra)
+  const obs = new MutationObserver(()=>{ grid.redraw(true); });
+  obs.observe(document.documentElement, {attributes:true, attributeFilter:["data-bs-theme"]});
 })();
 </script>
 {% endblock %}
