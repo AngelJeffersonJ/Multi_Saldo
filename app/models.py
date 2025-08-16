@@ -4,7 +4,8 @@ from uuid import uuid4
 
 from sqlalchemy import CheckConstraint, Index
 from sqlalchemy.dialects.postgresql import UUID
-from . import db
+from .extensions import db
+
 
 # Catálogos para UI (validación de formulario en rutas/servicios)
 BANCOS = ["BBVA", "Banorte", "Azteca", "Scotiabank", "Santander"]

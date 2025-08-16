@@ -4,7 +4,7 @@ from functools import wraps
 from decimal import Decimal, InvalidOperation
 from datetime import datetime
 from ..models import Deposito, Comprobante
-from .. import db
+from ..extensions import db
 from ..storage.base import get_storage
 
 bp = Blueprint("admin", __name__, url_prefix="/admin")

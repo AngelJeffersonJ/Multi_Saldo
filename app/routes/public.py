@@ -3,7 +3,7 @@ from decimal import Decimal
 from datetime import datetime
 import hashlib, os
 
-from .. import db
+from ..extensions import db
 from ..models import FacturaOpcion, Deposito, Comprobante, BANCOS, FORMAS, PRODUCTOS
 from ..storage.base import get_storage
 

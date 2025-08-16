@@ -5,4 +5,4 @@ gunicorn
 psycopg2-binary
 python-dotenv
 dropbox
-flask-cors          # <-- si vas por la opción A
+flask-cors
