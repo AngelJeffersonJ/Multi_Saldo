@@ -1,13 +1,12 @@
 # app/routes/admin.py
-from __future__ import annotations
-
 from flask import (
     Blueprint, render_template, request, redirect, url_for,
     flash, jsonify, session, current_app, abort
 )
 from hmac import compare_digest
-from datetime import datetime, date
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal
+from datetime import date
+from sqlalchemy.exc import SQLAlchemyError
 
 from ..extensions import db
 from ..models import Deposito, Comprobante
@@ -15,63 +14,14 @@ from ..storage.base import get_storage
 
 bp = Blueprint("admin", __name__, url_prefix="/admin")
 
-
 # ---------- helpers de auth ----------
 def _consteq(a: str | None, b: str | None) -> bool:
-    """Comparación constante para evitar timing attacks."""
     a = (a or "").strip()
     b = (b or "").strip()
     return compare_digest(a, b)
 
-
 def _is_authed() -> bool:
     return bool(session.get("admin_authed"))
-
-
-def _require_auth():
-    if not _is_authed():
-        abort(401)
-
-
-# ---------- helpers de parsing ----------
-def _to_bool(v):
-    if isinstance(v, bool):
-        return v
-    if v is None:
-        return False
-    s = str(v).strip().lower()
-    return s in ("1", "true", "t", "yes", "y", "on")
-
-
-def _to_int_or_none(v):
-    if v in (None, "", "None"):
-        return None
-    return int(v)
-
-
-def _to_decimal_or_none(v):
-    if v in (None, "", "None"):
-        return None
-    try:
-        return Decimal(str(v))
-    except (InvalidOperation, ValueError):
-        raise ValueError("importe inválido")
-
-
-def _to_date_or_none(v):
-    if not v:
-        return None
-    if isinstance(v, date):
-        return v
-    s = str(v).strip()
-    # acepta "YYYY-MM-DD" o "DD/MM/YYYY"
-    for fmt in ("%Y-%m-%d", "%d/%m/%Y"):
-        try:
-            return datetime.strptime(s, fmt).date()
-        except ValueError:
-            continue
-    raise ValueError("fecha inválida (usa AAAA-MM-DD)")
-
 
 # ---------- auth ----------
 @bp.route("/login", methods=["GET", "POST"])
@@ -79,22 +29,18 @@ def login():
     if request.method == "POST":
         user = request.form.get("username", "")
         pwd = request.form.get("password", "")
-        if _consteq(user, current_app.config.get("ADMIN_USER")) and _consteq(
-            pwd, current_app.config.get("ADMIN_PASSWORD")
-        ):
+        if _consteq(user, current_app.config["ADMIN_USER"]) and _consteq(pwd, current_app.config["ADMIN_PASSWORD"]):
             session["admin_authed"] = True
             flash("Bienvenido.", "success")
             return redirect(url_for("admin.registros"))
         flash("Usuario o contraseña incorrectos.", "danger")
     return render_template("admin/login.html")
 
-
 @bp.get("/logout")
 def logout():
     session.clear()
     flash("Sesión cerrada.", "success")
     return redirect(url_for("admin.login"))
-
 
 # ---------- vistas ----------
 @bp.get("/registros")
@@ -103,8 +49,7 @@ def registros():
         return redirect(url_for("admin.login"))
     return render_template("admin/registros.html")
 
-
-# ---------- serialización ----------
+# ---------- serializador ----------
 def _serialize_dep(d: Deposito) -> dict:
     return {
         "id": d.id,
@@ -113,7 +58,7 @@ def _serialize_dep(d: Deposito) -> dict:
         "forma_pago": d.forma_pago,
         "producto": d.producto,
         "numero_usuario": d.numero_usuario,
-        "importe": str(d.importe) if d.importe is not None else "",
+        "importe": str(d.importe) if d.importe is not None else "0.00",
         "bbva_tipo": d.bbva_tipo or "",
         "folio": d.folio or "",
         "autorizacion": d.autorizacion or "",
@@ -124,11 +69,11 @@ def _serialize_dep(d: Deposito) -> dict:
         "comprobante_id": d.comprobante_id,
     }
 
-
-# ---------- API para el grid ----------
+# ---------- API: listar ----------
 @bp.get("/api/depositos")
 def api_depositos_list():
-    _require_auth()
+    if not _is_authed():
+        return abort(401)
 
     q_banco = request.args.get("banco")
     q_forma = request.args.get("forma_pago")
@@ -140,54 +85,55 @@ def api_depositos_list():
     if q_forma:
         query = query.filter(Deposito.forma_pago == q_forma)
     if q_usuario:
-        # permite “contiene” para búsqueda rápida
-        query = query.filter(Deposito.numero_usuario.cast(db.String).like(f"%{q_usuario}%"))
+        query = query.filter(Deposito.numero_usuario.like(f"%{q_usuario}%"))
 
     rows = query.order_by(Deposito.id.desc()).all()
-    current_app.logger.info("Admin API -> %d depósito(s) devueltos", len(rows))
     return jsonify([_serialize_dep(r) for r in rows])
 
-
+# ---------- API: crear (para botón Agregar) ----------
 @bp.post("/api/depositos")
 def api_depositos_create():
-    """Crear registro mínimo para el botón 'Agregar' del grid."""
-    _require_auth()
-    data = request.get_json(silent=True) or {}
+    if not _is_authed():
+        return abort(401)
 
-    d = Deposito(
-        banco=data.get("banco") or "BBVA",
-        forma_pago=data.get("forma_pago") or "Deposito",
-        producto=data.get("producto") or "TAE",
-        estatus=data.get("estatus") or "registrado",
+    payload = request.get_json(silent=True) or {}
+
+    # Valores por defecto seguros (ajusta si tu modelo tiene NOT NULL/constraints)
+    dep = Deposito(
+        fecha_operacion = payload.get("fecha_operacion") or date.today(),
+        banco           = payload.get("banco")         or "BBVA",
+        forma_pago      = payload.get("forma_pago")    or "Deposito",
+        producto        = payload.get("producto")      or "TAE",
+        numero_usuario  = int(payload.get("numero_usuario") or 0),
+        importe         = Decimal(str(payload.get("importe") or "0.00")),
+        bbva_tipo       = payload.get("bbva_tipo")     or None,
+        folio           = payload.get("folio")         or None,
+        autorizacion    = payload.get("autorizacion")  or None,
+        referencia      = payload.get("referencia")    or None,
+        requiere_factura= bool(payload.get("requiere_factura") or False),
+        estatus         = payload.get("estatus")       or "registrado",
+        observaciones   = payload.get("observaciones") or None,
+        comprobante_id  = payload.get("comprobante_id") or None,
     )
-    # Campos opcionales iniciales si vienen:
-    if "fecha_operacion" in data:
-        d.fecha_operacion = _to_date_or_none(data.get("fecha_operacion"))
-    if "numero_usuario" in data:
-        d.numero_usuario = _to_int_or_none(data.get("numero_usuario"))
-    if "importe" in data:
-        d.importe = _to_decimal_or_none(data.get("importe"))
-    d.bbva_tipo = data.get("bbva_tipo") or None
-    d.folio = data.get("folio") or None
-    d.autorizacion = data.get("autorizacion") or None
-    d.referencia = data.get("referencia") or None
-    d.requiere_factura = _to_bool(data.get("requiere_factura"))
-    d.observaciones = data.get("observaciones") or None
 
-    db.session.add(d)
-    db.session.commit()
-    return jsonify(_serialize_dep(d)), 201
+    try:
+        db.session.add(dep)
+        db.session.commit()
+        return jsonify(_serialize_dep(dep)), 201
+    except SQLAlchemyError as e:
+        db.session.rollback()
+        current_app.logger.exception("Error al crear depósito")
+        # Devuelve texto simple; el frontend ya limpia HTML si lo hubiera
+        return jsonify({"error": f"No se pudo crear: {e}"}), 400
 
-
+# ---------- API: actualizar ----------
 @bp.patch("/api/depositos/<int:dep_id>")
 def api_depositos_update(dep_id: int):
-    _require_auth()
+    if not _is_authed():
+        return abort(401)
     payload = request.get_json(silent=True) or {}
     field = payload.get("field")
     value = payload.get("value")
-
-    if not field:
-        return jsonify({"error": "field requerido"}), 400
 
     dep = Deposito.query.get_or_404(dep_id)
 
@@ -201,62 +147,61 @@ def api_depositos_update(dep_id: int):
         return jsonify({"error": f"Campo no editable: {field}"}), 400
 
     try:
-        if field == "fecha_operacion":
-            value = _to_date_or_none(value)
-        elif field == "numero_usuario":
-            value = _to_int_or_none(value)
-        elif field == "importe":
-            value = _to_decimal_or_none(value)
+        if field == "numero_usuario":
+            value = int(value) if value not in (None, "", "None") else None
         elif field == "requiere_factura":
-            value = _to_bool(value)
-
+            # Tabulator envía boolean real; si llega string, normaliza
+            value = True if value in (True, "true", "True", "1", 1) else False
+        elif field == "importe" and value not in (None, "", "None"):
+            value = Decimal(str(value))
         setattr(dep, field, value)
         db.session.commit()
+        # devuelve la fila serializada, para normalizar en el grid
         return jsonify(_serialize_dep(dep))
     except Exception as e:
         db.session.rollback()
         return jsonify({"error": f"No se pudo guardar: {e}"}), 400
 
-
+# ---------- API: eliminar ----------
 @bp.delete("/api/depositos/<int:dep_id>")
 def api_depositos_delete(dep_id: int):
-    _require_auth()
+    if not _is_authed():
+        return abort(401)
     dep = Deposito.query.get_or_404(dep_id)
     try:
         db.session.delete(dep)
         db.session.commit()
-        return "", 204
+        return ("", 204)
     except Exception as e:
         db.session.rollback()
         return jsonify({"error": f"No se pudo eliminar: {e}"}), 400
 
-
 # ---------- Link de comprobante ----------
 @bp.get("/comprobante/<int:comp_id>/link")
 def comprobante_link(comp_id: int):
-    _require_auth()
+    if not _is_authed():
+        return abort(401)
     comp = Comprobante.query.get_or_404(comp_id)
     try:
         storage = get_storage()
         try:
-            url = storage.get_shared_link(comp.storage_path)  # intento permanente
+            url = storage.get_shared_link(comp.storage_path)  # permanente
         except Exception:
             url = storage.get_temporary_link(comp.storage_path)  # fallback temporal
         return redirect(url)
     except Exception as e:
-        # Si el archivo fue eliminado de Dropbox u otro error, avisamos y volvemos a la vista
-        flash(f"No se pudo obtener el comprobante: {e}", "danger")
+        flash(f"No se pudo obtener enlace: {e}", "danger")
         return redirect(url_for("admin.registros"))
-
 
 # ---------- debug ----------
 @bp.get("/debug/db")
 def debug_db():
-    _require_auth()
+    if not _is_authed():
+        return abort(401)
     from sqlalchemy import inspect
     info = {
-        "uri": str(current_app.config.get("SQLALCHEMY_DATABASE_URI"))[:80] + "...",
+        "uri": str(current_app.config.get("SQLALCHEMY_DATABASE_URI"))[:60] + "...",
         "tables": inspect(db.engine).get_table_names(),
-        "count_depositos": db.session.query(Deposito).count(),
+        "count": db.session.query(Deposito).count()
     }
     return jsonify(info)
