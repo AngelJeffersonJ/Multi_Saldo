@@ -2,40 +2,41 @@
 {% block title %}Registros · Admin{% endblock %}
 
 {% block extra_head %}
-  <!-- Tabulator CSS (tema Bootstrap 5) -->
-  <link href="https://unpkg.com/tabulator-tables@6.3.0/dist/css/tabulator_bootstrap5.min.css" rel="stylesheet">
-  <style>
-    .tabulator-row .btn-sm { padding: .15rem .4rem; }
-    .tabulator-responsive-collapse { background:#fafafa; }
-    .sticky-toolbar {
-      position: sticky; top: .5rem; z-index: 5; background: var(--bs-body-bg);
-      border: 1px solid var(--bs-border-color); border-radius: .5rem; padding: .5rem;
-    }
-  </style>
+<style>
+  .table-wrap{ overflow:auto; }
+  .table thead th{ white-space:nowrap; }
+  .cell-editing{ background:rgba(255,255,0,.15); outline:2px dashed rgba(255,255,0,.4); }
+  .table-responsive-stacked td[data-label]::before{
+    content: attr(data-label) ": ";
+    font-weight:600; color:var(--bs-secondary-color); display:none;
+  }
+  @media(max-width: 768px){
+    .table-responsive-stacked thead{ display:none; }
+    .table-responsive-stacked tbody tr{ display:block; margin-bottom:.75rem; border:1px solid var(--bs-border-color); border-radius:.5rem; }
+    .table-responsive-stacked td{ display:flex; justify-content:space-between; align-items:center; padding:.5rem .75rem; border:0; border-top:1px solid var(--bs-border-color); }
+    .table-responsive-stacked td:first-child{ border-top:0; }
+    .table-responsive-stacked td[data-label]::before{ display:inline; }
+  }
+</style>
 {% endblock %}
 
 {% block content %}
 <div class="container-xxl">
   <div class="d-flex align-items-center justify-content-between mb-3">
     <h3 class="mb-0"><i class="bi bi-table me-2"></i>Registros</h3>
-    <div class="d-flex gap-2">
-      <a href="{{ url_for('admin.logout') }}" class="btn btn-outline-secondary btn-sm">
-        <i class="bi bi-box-arrow-right"></i> Salir
-      </a>
-    </div>
+    <a href="{{ url_for('admin.logout') }}" class="btn btn-outline-secondary btn-sm">
+      <i class="bi bi-box-arrow-right"></i> Salir
+    </a>
   </div>
 
   <!-- Filtros -->
-  <div class="row g-2 mb-3 sticky-toolbar">
+  <div class="row g-2 mb-3">
     <div class="col-12 col-md-3">
       <label class="form-label">Banco</label>
       <select id="f_banco" class="form-select">
         <option value="">Todos</option>
-        <option>BBVA</option>
-        <option>Banorte</option>
-        <option>Azteca</option>
-        <option>Scotiabank</option>
-        <option>Santander</option>
+        <option>BBVA</option><option>Banorte</option><option>Azteca</option>
+        <option>Scotiabank</option><option>Santander</option>
       </select>
     </div>
     <div class="col-6 col-md-3">
@@ -54,189 +55,232 @@
       <button id="btnBuscar" class="btn btn-primary w-100">
         <i class="bi bi-search"></i> Buscar
       </button>
-      <div class="dropdown">
-        <button class="btn btn-outline-secondary" data-bs-toggle="dropdown"><i class="bi bi-download"></i></button>
-        <ul class="dropdown-menu dropdown-menu-end">
-          <li><a class="dropdown-item" href="#" id="dlCsv">CSV</a></li>
-          <li><a class="dropdown-item" href="#" id="dlXlsx">XLSX</a></li>
-        </ul>
-      </div>
+      <button id="btnCsv" class="btn btn-outline-secondary" title="Descargar CSV">
+        <i class="bi bi-download"></i>
+      </button>
     </div>
   </div>
 
-  <!-- Grid -->
-  <div id="depositosGrid" class="card"></div>
+  <!-- Tabla -->
+  <div class="table-wrap">
+    <table id="grid" class="table table-dark table-striped align-middle table-responsive-stacked">
+      <thead>
+        <tr>
+          <th style="width:60px">#</th>
+          <th>Fecha</th>
+          <th>Banco</th>
+          <th>Forma</th>
+          <th>Producto</th>
+          <th>Usuario</th>
+          <th class="text-end">Importe</th>
+          <th>BBVA tipo</th>
+          <th>Folio</th>
+          <th>Autorización</th>
+          <th>Referencia</th>
+          <th>Factura</th>
+          <th>Estatus</th>
+          <th>Observaciones</th>
+          <th>Razón social</th>
+          <th>RFC</th>
+          <th>Email fiscal</th>
+          <th>Comprobante</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody><!-- rows --></tbody>
+    </table>
+  </div>
 </div>
 {% endblock %}
 
 {% block body_extra %}
-  <!-- Tabulator JS -->
-  <script src="https://unpkg.com/tabulator-tables@6.3.0/dist/js/tabulator.min.js"></script>
-  <!-- XLSX export helper -->
-  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script>
+/* ===== Utilities ===== */
+const money = v => (Number(v||0)).toLocaleString('es-MX',{style:'currency',currency:'MXN'});
+const qs = sel => document.querySelector(sel);
+const qsa = sel => Array.from(document.querySelectorAll(sel));
 
-  <script>
-  // ---------- Helpers de red (siempre con cookies) ----------
-  function tabFetch(url, params) {
-    const qs = new URLSearchParams(params || {}).toString();
-    const full = qs ? `${url}?${qs}` : url;
-    return fetch(full, {
-      method: "GET",
-      credentials: "same-origin",
-      headers: { "Accept": "application/json" },
-    }).then(async (r) => {
-      if (!r.ok) {
-        const t = await r.text().catch(()=> "");
-        throw new Error(`GET ${r.status}: ${t.slice(0,200)}`);
-      }
-      return r.json();
-    });
-  }
-
-  async function patchCell(id, field, value) {
-    const resp = await fetch(`/admin/api/depositos/${id}`, {
-      method: 'PATCH',
-      credentials: "same-origin",
-      headers: {'Content-Type':'application/json','Accept':'application/json'},
-      body: JSON.stringify({ field, value })
-    });
-    if (!resp.ok) {
-      const txt = await resp.text().catch(()=> "");
-      throw new Error(txt || "No se pudo guardar");
-    }
-    return resp.json();
-  }
-
-  async function deleteRow(id) {
-    const resp = await fetch(`/admin/api/depositos/${id}`, {
-      method:'DELETE',
-      credentials: "same-origin",
-      headers: { 'Accept':'application/json' }
-    });
-    if (!resp.ok && resp.status !== 204) {
-      const txt = await resp.text().catch(()=> "");
-      throw new Error(txt || "No se pudo eliminar");
-    }
-  }
-
-  // ---------- Formateadores ----------
-  function moneyFormatter(cell) {
-    const v = cell.getValue();
-    const num = Number(v || 0);
-    return num.toLocaleString('es-MX', { style: 'currency', currency: 'MXN' });
-  }
-
-  // ---------- Columnas ----------
-  const columns = [
-    { title:"#", field:"id", width:70, hozAlign:"center", headerSort:false, frozen:true },
-    { title:"Fecha", field:"fecha_operacion", editor:"input", validator:["required"],
-      headerHozAlign:"center", width:130, responsive:0,
-      mutatorEdit:function(value){ return value || ""; },
-    },
-    { title:"Banco", field:"banco", width:130, editor:"select",
-      editorParams:{ values:["BBVA","Banorte","Azteca","Scotiabank","Santander"] }, responsive:0 },
-    { title:"Forma", field:"forma_pago", width:140, editor:"select",
-      editorParams:{ values:["Deposito","Transferencia"] }, responsive:0 },
-    { title:"Producto", field:"producto", width:150, editor:"select",
-      editorParams:{ values:["TAE","Pago de servicios"] }, responsive:0 },
-    { title:"Usuario", field:"numero_usuario", width:120, editor:"input",
-      validator:["required","integer","minLength:5","maxLength:5"], responsive:0 },
-    { title:"Importe", field:"importe", width:140, hozAlign:"right", formatter:moneyFormatter,
-      editor:"input", validator:["required"], responsive:0,
-      mutatorEdit:function(v){ return (v+"").replace(",","."); } },
-
-    { title:"BBVA tipo", field:"bbva_tipo", width:130, editor:"select",
-      editorParams:{ values:["","practicaja","caja"] }, responsive:2 },
-
-    { title:"Folio", field:"folio", width:130, editor:"input", responsive:1 },
-    { title:"Autorización", field:"autorizacion", width:130, editor:"input", responsive:2 },
-    { title:"Referencia", field:"referencia", width:160, editor:"input", responsive:1 },
-
-    { title:"Factura", field:"requiere_factura", width:100, hozAlign:"center",
-      formatter:"tickCross", editor:true, responsive:1 },
-
-    { title:"Estatus", field:"estatus", width:140, editor:"select",
-      editorParams:{ values:["registrado","validado","rechazado","facturado"] }, responsive:1 },
-
-    { title:"Observaciones", field:"observaciones", width:240, editor:"textarea", responsive:3 },
-
-    { title:"Razón social", field:"factura_titulo", width:220, headerTooltip:"Opción fiscal asignada", responsive:3 },
-    { title:"RFC", field:"factura_rfc", width:140, responsive:4 },
-    { title:"Email fiscal", field:"factura_email", width:220, responsive:4 },
-
-    { title:"Comprobante", field:"comprobante_id", width:140, headerSort:false, hozAlign:"center", responsive:0,
-      formatter:function(cell){
-        const id = cell.getValue();
-        if (!id) return "";
-        return `<a class="btn btn-sm btn-outline-primary" href="/admin/comprobante/${id}/ver" target="_blank">
-                  <i class="bi bi-file-earmark-text"></i> Ver
-                </a>`;
-      }
-    },
-    { title:"", width:80, headerSort:false, hozAlign:"center", frozen:true,
-      formatter:function(){
-        return `<button class="btn btn-sm btn-outline-danger"><i class="bi bi-trash"></i></button>`;
-      },
-      cellClick: async (e, cell) => {
-        const row = cell.getRow();
-        const data = row.getData();
-        if (!confirm(`¿Eliminar registro #${data.id}?`)) return;
-        try {
-          await deleteRow(data.id);
-          row.delete();
-        } catch (err) {
-          alert(err.message || "Error al eliminar");
-        }
-      }
-    },
-  ];
-
-  // ---------- Instancia Tabulator ----------
-  const table = new Tabulator("#depositosGrid", {
-    layout:"fitDataStretch",
-    responsiveLayout:"collapse",
-    height:"70vh",
-    placeholder:"Sin datos para mostrar",
-    index:"id",
-    columns,
-    ajaxURL:"/admin/api/depositos",
-    ajaxRequestFunc: (url, config, params) => tabFetch(url, params), // usa fetch con cookies
-    pagination:true,
-    paginationSize:50,
-    paginationSizeSelector:[25,50,100,200],
-    columnDefaults:{ headerFilter:false, tooltip:true, headerSort:true, resizable:true },
-    responsiveLayoutCollapseFormatter:function(data){
-      const omit = ["id"];
-      const rows = [];
-      for (const [k,v] of Object.entries(data)) {
-        if (omit.includes(k) || v===null || v===undefined || v==="") continue;
-        rows.push(`<div class="d-flex justify-content-between"><span class="text-secondary">${k}</span><span class="fw-semibold">${v}</span></div>`);
-      }
-      return rows.join("");
-    },
-    cellEdited: async function(cell){
-      const field = cell.getField();
-      const row = cell.getRow().getData();
-      try {
-        const updated = await patchCell(row.id, field, row[field]);
-        cell.getRow().update(updated);
-      } catch (err) {
-        alert(err.message || "No se pudo guardar");
-        cell.restoreOldValue();
-      }
-    },
+async function getJSON(url, params){
+  const full = params ? url + "?" + new URLSearchParams(params) : url;
+  const r = await fetch(full, { credentials:"same-origin", headers:{Accept:"application/json"} });
+  if(!r.ok){ throw new Error("GET "+r.status+" "+(await r.text()).slice(0,200)); }
+  return r.json();
+}
+async function patchJSON(url, body){
+  const r = await fetch(url, {
+    method:"PATCH", credentials:"same-origin",
+    headers:{"Content-Type":"application/json", Accept:"application/json"},
+    body:JSON.stringify(body)
   });
+  if(!r.ok){ throw new Error("PATCH "+r.status+" "+(await r.text()).slice(0,200)); }
+  return r.json();
+}
+async function del(url){
+  const r = await fetch(url, { method:"DELETE", credentials:"same-origin" });
+  if(!r.ok && r.status!==204){ throw new Error("DELETE "+r.status+" "+(await r.text()).slice(0,200)); }
+}
 
-  // ---------- Filtros ----------
-  async function reload() {
-    const banco   = document.getElementById('f_banco').value || "";
-    const forma   = document.getElementById('f_forma').value || "";
-    const usuario = document.getElementById('f_usuario').value || "";
-    table.setData("/admin/api/depositos", { banco, forma_pago: forma, numero_usuario: usuario });
+/* ===== Render ===== */
+const COLUMNS = [
+  ["id","#",d=>d.id,false,"center"],
+  ["fecha_operacion","Fecha",d=>d.fecha_operacion,true],
+  ["banco","Banco",d=>d.banco,true],
+  ["forma_pago","Forma",d=>d.forma_pago,true],
+  ["producto","Producto",d=>d.producto,true],
+  ["numero_usuario","Usuario",d=>d.numero_usuario,true],
+  ["importe","Importe",d=>money(d.importe),true,"end"],
+  ["bbva_tipo","BBVA tipo",d=>d.bbva_tipo,true],
+  ["folio","Folio",d=>d.folio,true],
+  ["autorizacion","Autorización",d=>d.autorizacion,true],
+  ["referencia","Referencia",d=>d.referencia,true],
+  ["requiere_factura","Factura",d=>d.requiere_factura ? "✓" : "✗",true],
+  ["estatus","Estatus",d=>d.estatus,true],
+  ["observaciones","Observaciones",d=>d.observaciones,true],
+  ["factura_titulo","Razón social",d=>d.factura_titulo,false],
+  ["factura_rfc","RFC",d=>d.factura_rfc,false],
+  ["factura_email","Email fiscal",d=>d.factura_email,false],
+];
+
+function renderRows(rows){
+  const tbody = qs("#grid tbody");
+  tbody.innerHTML = "";
+  for(const row of rows){
+    const tr = document.createElement("tr");
+    for(const [field,label,fmt,editable,align] of COLUMNS){
+      const td = document.createElement("td");
+      td.dataset.label = label;
+      td.className = align ? "text-"+align : "";
+      td.dataset.field = field;
+      td.dataset.id = row.id;
+      td.textContent = fmt(row) ?? "";
+      if(editable) td.setAttribute("data-editable","1");
+      // boolean visual para requiere_factura
+      if(field==="requiere_factura"){ td.dataset.bool = "1"; }
+      tr.appendChild(td);
+    }
+    // Comprobante
+    const tdComp = document.createElement("td");
+    tdComp.dataset.label = "Comprobante";
+    tdComp.innerHTML = row.comprobante_id
+      ? `<a class="btn btn-sm btn-outline-primary" target="_blank" href="/admin/comprobante/${row.comprobante_id}/ver"><i class="bi bi-file-earmark-text"></i> Ver</a>`
+      : "";
+    tr.appendChild(tdComp);
+    // Acciones
+    const tdAct = document.createElement("td");
+    tdAct.innerHTML = `<button class="btn btn-sm btn-outline-danger"><i class="bi bi-trash"></i></button>`;
+    tdAct.querySelector("button").addEventListener("click", async ()=>{
+      if(!confirm(`¿Eliminar registro #${row.id}?`)) return;
+      try{ await del(`/admin/api/depositos/${row.id}`); tr.remove(); }
+      catch(e){ alert(e.message); }
+    });
+    tr.appendChild(tdAct);
+
+    tbody.appendChild(tr);
   }
-  document.getElementById('btnBuscar').addEventListener('click', reload);
+  attachEditors();
+}
 
-  // Carga inicial
-  reload();
-  </script>
+/* ===== Edición inline ===== */
+function attachEditors(){
+  qsa('#grid td[data-editable="1"]').forEach(td=>{
+    td.addEventListener("click", ()=>{
+      if(td.querySelector("input,select,textarea")) return;
+      const id    = td.dataset.id;
+      const field = td.dataset.field;
+      const oldv  = td.dataset.bool ? (td.textContent.trim()==="✓" ? "1":"0")
+                    : td.textContent.trim();
+      td.classList.add("cell-editing");
+
+      // editor básico
+      let input;
+      if(field==="forma_pago"){
+        input = htmlSelect(["Deposito","Transferencia"], oldv);
+      } else if(field==="banco"){
+        input = htmlSelect(["BBVA","Banorte","Azteca","Scotiabank","Santander"], oldv);
+      } else if(field==="producto"){
+        input = htmlSelect(["TAE","Pago de servicios"], oldv);
+      } else if(field==="bbva_tipo"){
+        input = htmlSelect(["","practicaja","caja"], oldv);
+      } else if(field==="requiere_factura"){
+        input = htmlSelect(["0","1"], oldv); // 0/1
+      } else if(field==="observaciones"){
+        input = document.createElement("textarea"); input.rows=2; input.value=oldv;
+      } else {
+        input = document.createElement("input");
+        input.type = (field==="importe" || field==="numero_usuario") ? "text" : "text";
+        input.value = oldv;
+      }
+      input.className = "form-control form-control-sm";
+      td.innerHTML = ""; td.appendChild(input); input.focus(); input.select();
+
+      const finish = async (ok)=>{
+        const newv = (field==="requiere_factura") ? (input.value==="1") : input.value;
+        if(!ok){ td.textContent = oldv; td.classList.remove("cell-editing"); return; }
+        try{
+          const updated = await patchJSON(`/admin/api/depositos/${id}`, { field, value:newv });
+          // refresca celda con formateo
+          if(field==="importe"){ td.textContent = money(updated.importe); }
+          else if(field==="requiere_factura"){ td.textContent = updated.requiere_factura ? "✓":"✗"; }
+          else { td.textContent = (updated[field] ?? ""); }
+        }catch(e){
+          alert(e.message); td.textContent = oldv;
+        }
+        td.classList.remove("cell-editing");
+      };
+
+      input.addEventListener("keydown", (ev)=>{
+        if(ev.key==="Enter" && !(input.tagName==="TEXTAREA" && ev.shiftKey)){ ev.preventDefault(); finish(true); }
+        if(ev.key==="Escape"){ ev.preventDefault(); finish(false); }
+      });
+      input.addEventListener("blur", ()=> finish(true));
+    });
+  });
+}
+
+function htmlSelect(options, value){
+  const sel = document.createElement("select");
+  sel.className = "form-select form-select-sm";
+  for(const opt of options){
+    const o = document.createElement("option");
+    o.value = opt; o.textContent = opt==="" ? "(vacío)" : opt;
+    if(String(opt)===String(value)) o.selected = true;
+    sel.appendChild(o);
+  }
+  return sel;
+}
+
+/* ===== Carga y filtros ===== */
+async function reload(){
+  const banco   = qs('#f_banco').value || "";
+  const forma   = qs('#f_forma').value || "";
+  const usuario = qs('#f_usuario').value || "";
+  try{
+    const rows = await getJSON("/admin/api/depositos", { banco, forma_pago: forma, numero_usuario: usuario });
+    renderRows(rows);
+  }catch(e){
+    console.error(e);
+    alert("No se pudieron cargar datos: "+e.message);
+  }
+}
+qs('#btnBuscar').addEventListener('click', reload);
+reload();
+
+/* ===== CSV ===== */
+function downloadCSV(){
+  const rows = [];
+  const ths = qsa('#grid thead th');
+  rows.push(Array.from(ths).map(th=>th.textContent.trim()));
+  qsa('#grid tbody tr').forEach(tr=>{
+    const cols = Array.from(tr.querySelectorAll('td')).slice(0, ths.length);
+    rows.push(cols.map(td=>`"${td.textContent.replace(/"/g,'""')}"`));
+  });
+  const blob = new Blob([rows.map(r=>r.join(',')).join('\n')], {type:'text/csv;charset=utf-8;'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = "depositos.csv";
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+qs('#btnCsv').addEventListener('click', downloadCSV);
+</script>
 {% endblock %}
