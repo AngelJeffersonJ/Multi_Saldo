@@ -19,7 +19,6 @@ bp = Blueprint("admin", __name__, url_prefix="/admin")
 # ---------------------------- Health ----------------------------
 @bp.get("/healthz")
 def healthz():
-    # No toca DB ni almacenamiento
     return "ok", 200
 
 
@@ -32,21 +31,6 @@ def _consteq(a: str | None, b: str | None) -> bool:
 
 def _is_authed() -> bool:
     return bool(session.get("admin_authed"))
-
-
-@bp.get("/api/opciones_factura")
-def api_opciones_factura():
-    if not _is_authed():
-        return abort(401)
-    q = (request.args.get("numero_usuario") or "").strip()
-    if not q.isdigit():
-        return jsonify([])
-    items = (FacturaOpcion.query
-             .filter(FacturaOpcion.numero_usuario == int(q))
-             .order_by(FacturaOpcion.titulo.asc())
-             .all())
-    data = [{"id": it.id, "titulo": it.titulo, "rfc": it.rfc, "email": it.email} for it in items]
-    return jsonify(data)
 
 
 # ---------------------------- Auth ----------------------------
@@ -120,11 +104,11 @@ def api_depositos_list():
              .outerjoin(FacturaOpcion, Deposito.factura_opcion_id == FacturaOpcion.id))
 
     if q_banco:
-        query = query.filter(Deposito.banco == q_banco)
+        # ilike para ser más tolerante (ej. "BBVA Bancomer")
+        query = query.filter(Deposito.banco.ilike(f"%{q_banco}%"))
     if q_forma:
         query = query.filter(Deposito.forma_pago == q_forma)
     if q_usuario:
-        # permite prefijos; si sólo quieres exacto, cambia por ==
         query = query.filter(Deposito.numero_usuario.like(f"%{q_usuario}%"))
 
     rows = query.order_by(Deposito.id.desc()).all()
@@ -149,7 +133,7 @@ def api_depositos_update(dep_id: int):
         "numero_usuario", "importe", "bbva_tipo", "folio",
         "autorizacion", "referencia", "requiere_factura",
         "estatus", "observaciones",
-        # "factura_opcion_id",  # habilítalo si permites elegirla desde el grid
+        # "factura_opcion_id",
     }
     if field not in editable:
         return jsonify({"error": f"Campo no editable: {field}"}), 400
@@ -161,7 +145,6 @@ def api_depositos_update(dep_id: int):
         elif field == "requiere_factura":
             value = True if value in (True, "true", "True", "1", 1, "on") else False
         elif field == "importe":
-            # admite "145,00" o "145.00"
             s = str(value or "0").replace(",", ".")
             value = Decimal(s)
         elif field == "fecha_operacion" and isinstance(value, str) and value:
@@ -173,7 +156,6 @@ def api_depositos_update(dep_id: int):
         dep.updated_at = datetime.utcnow()
         db.session.commit()
 
-        # Re-tráelo con join para regresar también la razón social
         dep_refreshed, fo = (db.session.query(Deposito, FacturaOpcion)
                              .outerjoin(FacturaOpcion, Deposito.factura_opcion_id == FacturaOpcion.id)
                              .filter(Deposito.id == dep.id).one())
@@ -202,7 +184,7 @@ def api_depositos_delete(dep_id: int):
 # ---------------------------- Comprobante: abrir (stream) ----------------------------
 @bp.get("/comprobante/<int:comp_id>/ver")
 def comprobante_ver(comp_id: int):
-    """Sirve el comprobante inline. Usa Dropbox.download(); si falla, intenta link temporal/compartido."""
+    """Sirve el comprobante inline. Usa storage.download(); si falla, intenta link temporal/compartido."""
     if not _is_authed():
         return abort(401)
     comp = Comprobante.query.get_or_404(comp_id)
@@ -222,11 +204,11 @@ def comprobante_ver(comp_id: int):
                 last_modified=None,
             )
         except FileNotFoundError:
-            flash("El archivo ya no existe en Dropbox (posible eliminación manual).", "warning")
+            flash("El archivo ya no existe en el almacenamiento (posible eliminación manual).", "warning")
             return redirect(url_for("admin.registros"))
         except Exception as e:
             current_app.logger.exception("Error al descargar comprobante: %s", e)
-            # Fallback: intenta un link temporal de Dropbox
+            # Fallback: intenta un link temporal
             try:
                 url = storage.get_temporary_link(comp.storage_path)
                 return redirect(url)
@@ -234,7 +216,7 @@ def comprobante_ver(comp_id: int):
                 flash("No se pudo abrir el comprobante.", "danger")
                 return redirect(url_for("admin.registros"))
     else:
-        # Provider sin método download(): intenta links de Dropbox
+        # Provider sin método download(): intenta links
         try:
             url = storage.get_temporary_link(comp.storage_path)
             return redirect(url)
@@ -250,7 +232,7 @@ def comprobante_ver(comp_id: int):
 # ---------------------------- Link de comprobante (compat) ----------------------------
 @bp.get("/comprobante/<int:comp_id>/link")
 def comprobante_link(comp_id: int):
-    """Mantengo esta ruta por compatibilidad; prefiere /ver en el grid."""
+    """Mantiene ruta por compatibilidad; preferir /ver en el grid."""
     if not _is_authed():
         return abort(401)
     comp = Comprobante.query.get_or_404(comp_id)
@@ -332,6 +314,22 @@ def fiscales_delete(oid: int):
     db.session.commit()
     flash("Opción eliminada.", "success")
     return redirect(url_for("admin.fiscales", numero_usuario=nu))
+
+
+# ---------------------------- API: opciones fiscales (para formulario) ----------------------------
+@bp.get("/api/opciones_factura")
+def api_opciones_factura():
+    if not _is_authed():
+        return abort(401)
+    q = (request.args.get("numero_usuario") or "").strip()
+    if not q.isdigit():
+        return jsonify([])
+    items = (FacturaOpcion.query
+             .filter(FacturaOpcion.numero_usuario == int(q))
+             .order_by(FacturaOpcion.titulo.asc())
+             .all())
+    data = [{"id": it.id, "titulo": it.titulo, "rfc": it.rfc, "email": it.email} for it in items]
+    return jsonify(data)
 
 
 # ---------------------------- Debug ----------------------------

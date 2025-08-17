@@ -76,41 +76,62 @@
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 
   <script>
-  // Helpers de red
+  // ---------- Helpers de red (siempre con cookies) ----------
+  function tabFetch(url, params) {
+    const qs = new URLSearchParams(params || {}).toString();
+    const full = qs ? `${url}?${qs}` : url;
+    return fetch(full, {
+      method: "GET",
+      credentials: "same-origin",
+      headers: { "Accept": "application/json" },
+    }).then(async (r) => {
+      if (!r.ok) {
+        const t = await r.text().catch(()=> "");
+        throw new Error(`GET ${r.status}: ${t.slice(0,200)}`);
+      }
+      return r.json();
+    });
+  }
+
   async function patchCell(id, field, value) {
     const resp = await fetch(`/admin/api/depositos/${id}`, {
       method: 'PATCH',
-      headers: {'Content-Type':'application/json'},
+      credentials: "same-origin",
+      headers: {'Content-Type':'application/json','Accept':'application/json'},
       body: JSON.stringify({ field, value })
     });
     if (!resp.ok) {
-      const data = await resp.json().catch(()=>({error:'Error desconocido'}));
-      throw new Error(data.error || 'No se pudo guardar');
+      const txt = await resp.text().catch(()=> "");
+      throw new Error(txt || "No se pudo guardar");
     }
     return resp.json();
   }
+
   async function deleteRow(id) {
-    const resp = await fetch(`/admin/api/depositos/${id}`, { method:'DELETE' });
+    const resp = await fetch(`/admin/api/depositos/${id}`, {
+      method:'DELETE',
+      credentials: "same-origin",
+      headers: { 'Accept':'application/json' }
+    });
     if (!resp.ok && resp.status !== 204) {
-      const data = await resp.json().catch(()=>({error:'Error desconocido'}));
-      throw new Error(data.error || 'No se pudo eliminar');
+      const txt = await resp.text().catch(()=> "");
+      throw new Error(txt || "No se pudo eliminar");
     }
   }
 
-  // Formateadores
+  // ---------- Formateadores ----------
   function moneyFormatter(cell) {
     const v = cell.getValue();
     const num = Number(v || 0);
     return num.toLocaleString('es-MX', { style: 'currency', currency: 'MXN' });
   }
 
-  // Columnas (tipo Excel)
+  // ---------- Columnas ----------
   const columns = [
     { title:"#", field:"id", width:70, hozAlign:"center", headerSort:false, frozen:true },
     { title:"Fecha", field:"fecha_operacion", editor:"input", validator:["required"],
       headerHozAlign:"center", width:130, responsive:0,
       mutatorEdit:function(value){ return value || ""; },
-      // Acepta ISO (yyyy-mm-dd)
     },
     { title:"Banco", field:"banco", width:130, editor:"select",
       editorParams:{ values:["BBVA","Banorte","Azteca","Scotiabank","Santander"] }, responsive:0 },
@@ -139,12 +160,10 @@
 
     { title:"Observaciones", field:"observaciones", width:240, editor:"textarea", responsive:3 },
 
-    // Extras visibles (read-only)
     { title:"Razón social", field:"factura_titulo", width:220, headerTooltip:"Opción fiscal asignada", responsive:3 },
     { title:"RFC", field:"factura_rfc", width:140, responsive:4 },
     { title:"Email fiscal", field:"factura_email", width:220, responsive:4 },
 
-    // Acciones
     { title:"Comprobante", field:"comprobante_id", width:140, headerSort:false, hozAlign:"center", responsive:0,
       formatter:function(cell){
         const id = cell.getValue();
@@ -172,29 +191,20 @@
     },
   ];
 
-  // Instancia Tabulator
+  // ---------- Instancia Tabulator ----------
   const table = new Tabulator("#depositosGrid", {
-    layout:"fitDataStretch",           // ajusta columnas al contenedor
-    responsiveLayout:"collapse",       // colapsa columnas en móviles
-    reactiveData:false,
+    layout:"fitDataStretch",
+    responsiveLayout:"collapse",
     height:"70vh",
     placeholder:"Sin datos para mostrar",
     index:"id",
     columns,
     ajaxURL:"/admin/api/depositos",
-    ajaxConfig:"GET",
-    ajaxContentType:"json",
-    ajaxParams:{},
+    ajaxRequestFunc: (url, config, params) => tabFetch(url, params), // usa fetch con cookies
     pagination:true,
     paginationSize:50,
     paginationSizeSelector:[25,50,100,200],
-    columnDefaults:{
-      headerFilter:false,
-      tooltip:true,
-      headerSort:true,
-      resizable:true,
-    },
-    // detalle responsive
+    columnDefaults:{ headerFilter:false, tooltip:true, headerSort:true, resizable:true },
     responsiveLayoutCollapseFormatter:function(data){
       const omit = ["id"];
       const rows = [];
@@ -207,10 +217,9 @@
     cellEdited: async function(cell){
       const field = cell.getField();
       const row = cell.getRow().getData();
-      const value = row[field];
       try {
-        const updated = await patchCell(row.id, field, value);
-        cell.getRow().update(updated); // sincroniza extras (razón social, etc.)
+        const updated = await patchCell(row.id, field, row[field]);
+        cell.getRow().update(updated);
       } catch (err) {
         alert(err.message || "No se pudo guardar");
         cell.restoreOldValue();
@@ -218,25 +227,14 @@
     },
   });
 
-  // Filtros (recarga por servidor para no traer todo)
+  // ---------- Filtros ----------
   async function reload() {
-    const banco = document.getElementById('f_banco').value || "";
-    const forma = document.getElementById('f_forma').value || "";
+    const banco   = document.getElementById('f_banco').value || "";
+    const forma   = document.getElementById('f_forma').value || "";
     const usuario = document.getElementById('f_usuario').value || "";
     table.setData("/admin/api/depositos", { banco, forma_pago: forma, numero_usuario: usuario });
   }
   document.getElementById('btnBuscar').addEventListener('click', reload);
-
-  // Export
-  document.getElementById('dlCsv').addEventListener('click', (e)=>{
-    e.preventDefault();
-    table.download("csv", "depositos.csv");
-  });
-  document.getElementById('dlXlsx').addEventListener('click', (e)=>{
-    e.preventDefault();
-    // usa el polyfill XLSX incluido
-    table.download("xlsx", "depositos.xlsx", { sheetName:"Registros" });
-  });
 
   // Carga inicial
   reload();
