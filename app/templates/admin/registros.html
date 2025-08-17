@@ -40,14 +40,8 @@
       font-weight:600;
       color: var(--bs-secondary-color);
     }
-    .table-stack td.text-end{
-      justify-content: space-between;
-    }
-    .table-stack td[data-actions]{
-      display:flex !important;
-      gap:.5rem;
-      justify-content:flex-end;
-    }
+    .table-stack td.text-end{ justify-content: space-between; }
+    .table-stack td[data-actions]{ display:flex !important; gap:.5rem; justify-content:flex-end; }
   }
 </style>
 {% endblock %}
@@ -95,8 +89,7 @@
 
   <!-- Tabla -->
   <div class="table-wrap">
-    <table id="grid"
-           class="table table-dark table-striped align-middle table-stack">
+    <table id="grid" class="table table-dark table-striped align-middle table-stack">
       <thead>
         <tr>
           <th style="width:60px">#</th>
@@ -158,6 +151,18 @@ const show = el => el.classList.remove('d-none');
 const hide = el => el.classList.add('d-none');
 const toast = (id, msg) => { const t = new bootstrap.Toast(qs(id)); qs(id+' .toast-body').textContent = msg; t.show(); };
 const money = v => (Number(v||0)).toLocaleString('es-MX',{style:'currency',currency:'MXN'});
+
+function normalizeImporte(v){
+  let s = String(v ?? "").trim();
+  s = s.replace(/[\s$]/g, "");
+  if (s.includes(",") && s.includes(".")) {
+    s = s.replace(/,/g, "");
+  } else if (s.includes(",") && !s.includes(".")) {
+    s = s.replace(",", ".");
+  }
+  if (s.startsWith(".")) s = "0" + s;
+  return s;
+}
 
 async function getJSON(url, params){
   const full = params ? url + "?" + new URLSearchParams(params) : url;
@@ -252,7 +257,7 @@ function attachEditors(){
       const rawText = td.textContent.trim();
       td.classList.add("cell-editing");
 
-      // Construir editor apropiado por campo
+      // Editor por tipo
       let input;
       if(field==="forma_pago"){
         input = select(["Deposito","Transferencia"], rawText);
@@ -273,14 +278,13 @@ function attachEditors(){
         input.className = "d-flex align-items-center gap-2";
         input.appendChild(chk);
         input.append(" Requiere");
-        input.getValue = ()=> chk.checked;            // boolean
+        input.getValue = ()=> chk.checked;
       } else if(field==="fecha_operacion"){
-        const v = rawText || "";
         input = document.createElement("input");
         input.type = "date";
         input.className = "form-control form-control-sm";
-        input.value = v;
-        input.getValue = ()=> input.value;            // yyyy-mm-dd
+        input.value = rawText || "";
+        input.getValue = ()=> input.value;
       } else if(field==="observaciones"){
         input = document.createElement("textarea");
         input.rows = 2;
@@ -295,7 +299,6 @@ function attachEditors(){
         input.getValue = ()=> input.value.trim();
       }
 
-      // Render editor
       td.innerHTML = ""; td.appendChild(input); (input.querySelector('input,textarea,select')||input).focus();
 
       const commit = async(save)=>{
@@ -306,7 +309,7 @@ function attachEditors(){
         if(field==="numero_usuario"){
           value = value ? parseInt(String(value).replace(/\D/g,""),10) : null;
         } else if(field==="importe"){
-          value = (String(value||"0").replace(",",".")); // tu API hace Decimal(s)
+          value = normalizeImporte(value);
         } else if(field==="requiere_factura"){
           value = !!value; // boolean
         } else if(field==="fecha_operacion"){
@@ -315,7 +318,6 @@ function attachEditors(){
 
         try{
           const updated = await patchJSON(`/admin/api/depositos/${id}`, { field, value });
-          // pintar según respuesta oficial
           if(field==="importe"){ td.textContent = money(updated.importe); }
           else if(field==="requiere_factura"){ td.textContent = updated.requiere_factura ? "✓" : "✗"; }
           else { td.textContent = updated[field] ?? ""; }

@@ -7,6 +7,7 @@ from hmac import compare_digest
 from decimal import Decimal, InvalidOperation
 from datetime import date, datetime
 from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy import cast, String  # <- para LIKE sobre enteros
 from io import BytesIO
 import re
 
@@ -104,12 +105,15 @@ def api_depositos_list():
              .outerjoin(FacturaOpcion, Deposito.factura_opcion_id == FacturaOpcion.id))
 
     if q_banco:
-        # ilike para ser más tolerante (ej. "BBVA Bancomer")
+        # tolera variantes (ej. "BBVA Bancomer")
         query = query.filter(Deposito.banco.ilike(f"%{q_banco}%"))
+
     if q_forma:
         query = query.filter(Deposito.forma_pago == q_forma)
+
     if q_usuario:
-        query = query.filter(Deposito.numero_usuario.like(f"%{q_usuario}%"))
+        # numero_usuario es INT en DB -> castear a texto para usar LIKE sin 500
+        query = query.filter(cast(Deposito.numero_usuario, String).like(f"%{q_usuario}%"))
 
     rows = query.order_by(Deposito.id.desc()).all()
     data = [_serialize_dep_row(dep, fo) for dep, fo in rows]
@@ -145,12 +149,18 @@ def api_depositos_update(dep_id: int):
         elif field == "requiere_factura":
             value = True if value in (True, "true", "True", "1", 1, "on") else False
         elif field == "importe":
-            s = str(value or "0").replace(",", ".")
+            # Soportar "1,234.56", "1234,56", ".56", "$1,234.56"
+            s = str(value or "0").strip()
+            s = s.replace(" ", "").replace("$", "")
+            if "," in s and "." in s:
+                s = s.replace(",", "")     # coma como miles
+            else:
+                s = s.replace(",", ".")    # coma como decimal
+            if s.startswith("."):
+                s = "0" + s
             value = Decimal(s)
         elif field == "fecha_operacion" and isinstance(value, str) and value:
             value = date.fromisoformat(value)
-        # elif field == "factura_opcion_id":
-        #     value = None if not value else int(value)
 
         setattr(dep, field, value)
         dep.updated_at = datetime.utcnow()
@@ -184,13 +194,12 @@ def api_depositos_delete(dep_id: int):
 # ---------------------------- Comprobante: abrir (stream) ----------------------------
 @bp.get("/comprobante/<int:comp_id>/ver")
 def comprobante_ver(comp_id: int):
-    """Sirve el comprobante inline. Usa storage.download(); si falla, intenta link temporal/compartido."""
+    """Sirve el comprobante inline desde el storage."""
     if not _is_authed():
         return abort(401)
     comp = Comprobante.query.get_or_404(comp_id)
     storage = get_storage()
 
-    # Intento principal: descargar bytes y servir inline
     if hasattr(storage, "download"):
         try:
             data, mime, name = storage.download(comp.storage_path)
@@ -204,11 +213,10 @@ def comprobante_ver(comp_id: int):
                 last_modified=None,
             )
         except FileNotFoundError:
-            flash("El archivo ya no existe en el almacenamiento (posible eliminación manual).", "warning")
+            flash("El archivo ya no existe en el almacenamiento.", "warning")
             return redirect(url_for("admin.registros"))
         except Exception as e:
             current_app.logger.exception("Error al descargar comprobante: %s", e)
-            # Fallback: intenta un link temporal
             try:
                 url = storage.get_temporary_link(comp.storage_path)
                 return redirect(url)
@@ -216,7 +224,6 @@ def comprobante_ver(comp_id: int):
                 flash("No se pudo abrir el comprobante.", "danger")
                 return redirect(url_for("admin.registros"))
     else:
-        # Provider sin método download(): intenta links
         try:
             url = storage.get_temporary_link(comp.storage_path)
             return redirect(url)
@@ -232,7 +239,6 @@ def comprobante_ver(comp_id: int):
 # ---------------------------- Link de comprobante (compat) ----------------------------
 @bp.get("/comprobante/<int:comp_id>/link")
 def comprobante_link(comp_id: int):
-    """Mantiene ruta por compatibilidad; preferir /ver en el grid."""
     if not _is_authed():
         return abort(401)
     comp = Comprobante.query.get_or_404(comp_id)
@@ -263,7 +269,6 @@ def fiscales():
                     .all())
 
     if request.method == "POST":
-        # alta rápida
         nu     = (request.form.get("numero_usuario") or "").strip()
         titulo = (request.form.get("titulo") or "").strip()
         rfc    = (request.form.get("rfc") or "").strip().upper()
