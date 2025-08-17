@@ -1,20 +1,20 @@
 # app/routes/admin.py
 from flask import (
     Blueprint, render_template, request, redirect, url_for,
-    flash, jsonify, session, current_app, abort
+    flash, jsonify, session, current_app, abort, send_file
 )
 from hmac import compare_digest
 from decimal import Decimal, InvalidOperation
 from datetime import date, datetime
 from sqlalchemy.exc import SQLAlchemyError
+from io import BytesIO
+import re
 
 from ..extensions import db
 from ..models import Deposito, Comprobante, FacturaOpcion
 from ..storage.base import get_storage
-import re
 
 bp = Blueprint("admin", __name__, url_prefix="/admin")
-
 
 # ---------------------------- Health ----------------------------
 @bp.get("/healthz")
@@ -134,8 +134,7 @@ def api_depositos_update(dep_id: int):
         "numero_usuario", "importe", "bbva_tipo", "folio",
         "autorizacion", "referencia", "requiere_factura",
         "estatus", "observaciones",
-        # si más adelante permites elegir explícitamente la opción fiscal:
-        # "factura_opcion_id",
+        # "factura_opcion_id",  # habilítalo si permites elegirla desde el grid
     }
     if field not in editable:
         return jsonify({"error": f"Campo no editable: {field}"}), 400
@@ -158,6 +157,7 @@ def api_depositos_update(dep_id: int):
         setattr(dep, field, value)
         dep.updated_at = datetime.utcnow()
         db.session.commit()
+
         # Re-tráelo con join para regresar también la razón social
         dep_refreshed, fo = (db.session.query(Deposito, FacturaOpcion)
                              .outerjoin(FacturaOpcion, Deposito.factura_opcion_id == FacturaOpcion.id)
@@ -184,9 +184,58 @@ def api_depositos_delete(dep_id: int):
         return jsonify({"error": f"No se pudo eliminar: {e}"}), 400
 
 
-# ---------------------------- Link de comprobante ----------------------------
+# ---------------------------- Comprobante: abrir (stream) ----------------------------
+@bp.get("/comprobante/<int:comp_id>/ver")
+def comprobante_ver(comp_id: int):
+    """Sirve el comprobante inline. Usa Dropbox.download(); si falla, intenta link temporal/compartido."""
+    if not _is_authed():
+        return abort(401)
+    comp = Comprobante.query.get_or_404(comp_id)
+    storage = get_storage()
+
+    # Intento principal: descargar bytes y servir inline
+    if hasattr(storage, "download"):
+        try:
+            data, mime, name = storage.download(comp.storage_path)
+            return send_file(
+                BytesIO(data),
+                mimetype=comp.mime or mime,
+                as_attachment=False,
+                download_name=comp.file_name or name,
+                max_age=0,
+                etag=False,
+                last_modified=None,
+            )
+        except FileNotFoundError:
+            flash("El archivo ya no existe en Dropbox (posible eliminación manual).", "warning")
+            return redirect(url_for("admin.registros"))
+        except Exception as e:
+            current_app.logger.exception("Error al descargar comprobante: %s", e)
+            # Fallback: intenta un link temporal de Dropbox
+            try:
+                url = storage.get_temporary_link(comp.storage_path)
+                return redirect(url)
+            except Exception:
+                flash("No se pudo abrir el comprobante.", "danger")
+                return redirect(url_for("admin.registros"))
+    else:
+        # Provider sin método download(): intenta links de Dropbox
+        try:
+            url = storage.get_temporary_link(comp.storage_path)
+            return redirect(url)
+        except Exception:
+            try:
+                url = storage.get_shared_link(comp.storage_path)
+                return redirect(url)
+            except Exception as e:
+                flash(f"No se pudo abrir el comprobante: {e}", "danger")
+                return redirect(url_for("admin.registros"))
+
+
+# ---------------------------- Link de comprobante (compat) ----------------------------
 @bp.get("/comprobante/<int:comp_id>/link")
 def comprobante_link(comp_id: int):
+    """Mantengo esta ruta por compatibilidad; prefiere /ver en el grid."""
     if not _is_authed():
         return abort(401)
     comp = Comprobante.query.get_or_404(comp_id)
