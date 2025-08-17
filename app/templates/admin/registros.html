@@ -1,310 +1,244 @@
 {% extends "base.html" %}
-{% block title %}Registros · Admin · Multisaldo{% endblock %}
+{% block title %}Registros · Admin{% endblock %}
 
-{% block head_extra %}
-<!-- Tabulator (tema claro + oscuro) -->
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/tabulator-tables@6.3.0/dist/css/tabulator.min.css">
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/tabulator-tables@6.3.0/dist/css/tabulator_midnight.min.css">
-<script src="https://cdn.jsdelivr.net/npm/tabulator-tables@6.3.0/dist/js/tabulator.min.js"></script>
-
-<style>
-  /* -------- Paleta y estilos generales (conserva tu look & feel) -------- */
-  .title-row h3 { color: #e5e7eb }
-  .title-row small { color: #9ca3af }
-
-  .admin-toolbar {
-    position: sticky; top: 0; z-index: 10;
-    background: linear-gradient(180deg, rgba(2,6,23,.85), rgba(2,6,23,.65));
-    backdrop-filter: blur(6px);
-    border: 1px solid #1f2937; border-radius: 12px;
-    padding: .8rem; margin-bottom: .75rem;
-  }
-  .chip {
-    background: #0b1220; border: 1px solid #334155; color: #e5e7eb;
-    border-radius: 10px; padding: .45rem .7rem;
-  }
-  .chip:focus, .chip:hover { border-color: #6366f1; box-shadow: 0 0 0 .08rem rgba(99,102,241,.35); }
-  .btn-sleek {
-    border-radius: 10px; border: 1px solid #334155;
-    background: linear-gradient(180deg, #111827, #0b1220);
-    color: #e5e7eb;
-  }
-  .btn-sleek:hover { border-color: #6366f1; color: #fff; }
-  .btn-primary-sleek {
-    background: linear-gradient(180deg, #4f46e5, #4338ca);
-    border-color: #4f46e5; color:#fff;
-  }
-  .btn-success-sleek {
-    background: linear-gradient(180deg, #16a34a, #15803d);
-    border-color: #16a34a; color:#fff;
-  }
-
-  /* Contenedor de la tabla */
-  #tableWrap { border-radius: 14px; overflow: hidden; }
-  /* En modo oscuro usamos el tema midnight (se aplica por clase), en claro el base */
-  [data-bs-theme="light"] #tableWrap .tabulator .tabulator-header{ background:#f8f9fa }
-</style>
+{% block extra_head %}
+  <!-- Tabulator CSS (tema Bootstrap 5) -->
+  <link href="https://unpkg.com/tabulator-tables@6.3.0/dist/css/tabulator_bootstrap5.min.css" rel="stylesheet">
+  <style>
+    .tabulator-row .btn-sm { padding: .15rem .4rem; }
+    .tabulator-responsive-collapse { background:#fafafa; }
+    .sticky-toolbar {
+      position: sticky; top: .5rem; z-index: 5; background: var(--bs-body-bg);
+      border: 1px solid var(--bs-border-color); border-radius: .5rem; padding: .5rem;
+    }
+  </style>
 {% endblock %}
 
 {% block content %}
 <div class="container-xxl">
-  <div class="title-row d-flex align-items-center justify-content-between mb-3">
-    <div>
-      <h3 class="mb-1"><i class="bi bi-grid-3x3-gap me-2"></i>Registros de Depósitos</h3>
-      <small>Edición tipo Excel: doble clic/F2 para editar, <kbd>Enter</kbd> guarda, <kbd>Supr</kbd> elimina. Copiar/pegar y selección por rangos habilitados.</small>
-    </div>
+  <div class="d-flex align-items-center justify-content-between mb-3">
+    <h3 class="mb-0"><i class="bi bi-table me-2"></i>Registros</h3>
     <div class="d-flex gap-2">
-      <button id="btnCSV" class="btn btn-success-sleek"><i class="bi bi-filetype-csv me-1"></i>CSV</button>
+      <a href="{{ url_for('admin.logout') }}" class="btn btn-outline-secondary btn-sm">
+        <i class="bi bi-box-arrow-right"></i> Salir
+      </a>
     </div>
   </div>
 
-  <div id="alertBox" class="alert alert-danger d-none" role="alert"></div>
-
-  <div class="admin-toolbar">
-    <div class="row g-2 align-items-end">
-      <div class="col-sm-6 col-md-3">
-        <label class="form-label text-secondary">Usuario (5 díg.)</label>
-        <input id="fUsuario" class="form-control chip" placeholder="12345" inputmode="numeric" pattern="\d{5}">
-      </div>
-      <div class="col-sm-6 col-md-3">
-        <label class="form-label text-secondary">Banco</label>
-        <select id="fBanco" class="form-select chip">
-          <option value="">(todos)</option>
-          <option>BBVA</option><option>Banorte</option><option>Azteca</option>
-          <option>Scotiabank</option><option>Santander</option>
-        </select>
-      </div>
-      <div class="col-sm-6 col-md-3">
-        <label class="form-label text-secondary">Forma</label>
-        <select id="fForma" class="form-select chip">
-          <option value="">(todas)</option>
-          <option>Deposito</option><option>Transferencia</option>
-        </select>
-      </div>
-      <div class="col-sm-6 col-md-3">
-        <label class="form-label text-secondary">Densidad</label>
-        <select id="fDensidad" class="form-select chip">
-          <option value="44">Normal</option>
-          <option value="32">Compacta</option>
-        </select>
-      </div>
-      <div class="col-12 d-flex gap-2 mt-2">
-        <button id="btnFiltrar" class="btn btn-primary-sleek"><i class="bi bi-funnel me-1"></i>Filtrar</button>
-        <button id="btnLimpiar" class="btn btn-sleek"><i class="bi bi-eraser me-1"></i>Limpiar</button>
+  <!-- Filtros -->
+  <div class="row g-2 mb-3 sticky-toolbar">
+    <div class="col-12 col-md-3">
+      <label class="form-label">Banco</label>
+      <select id="f_banco" class="form-select">
+        <option value="">Todos</option>
+        <option>BBVA</option>
+        <option>Banorte</option>
+        <option>Azteca</option>
+        <option>Scotiabank</option>
+        <option>Santander</option>
+      </select>
+    </div>
+    <div class="col-6 col-md-3">
+      <label class="form-label">Forma de pago</label>
+      <select id="f_forma" class="form-select">
+        <option value="">Todas</option>
+        <option value="Deposito">Deposito</option>
+        <option value="Transferencia">Transferencia</option>
+      </select>
+    </div>
+    <div class="col-6 col-md-3">
+      <label class="form-label"># Usuario</label>
+      <input id="f_usuario" class="form-control" inputmode="numeric" placeholder="12345">
+    </div>
+    <div class="col-12 col-md-3 d-flex align-items-end gap-2">
+      <button id="btnBuscar" class="btn btn-primary w-100">
+        <i class="bi bi-search"></i> Buscar
+      </button>
+      <div class="dropdown">
+        <button class="btn btn-outline-secondary" data-bs-toggle="dropdown"><i class="bi bi-download"></i></button>
+        <ul class="dropdown-menu dropdown-menu-end">
+          <li><a class="dropdown-item" href="#" id="dlCsv">CSV</a></li>
+          <li><a class="dropdown-item" href="#" id="dlXlsx">XLSX</a></li>
+        </ul>
       </div>
     </div>
   </div>
 
-  <div id="tableWrap">
-    <!-- clase de tema se añade por JS según data-bs-theme -->
-    <div id="regTable"></div>
-  </div>
+  <!-- Grid -->
+  <div id="depositosGrid" class="card"></div>
 </div>
 {% endblock %}
 
 {% block body_extra %}
-<script>
-(() => {
-  const $alert = document.getElementById('alertBox');
-  function showError(msg){
-    console.error(msg);
-    $alert.textContent = typeof msg === 'string' ? msg : (msg?.message || 'Error');
-    $alert.classList.remove('d-none');
-    setTimeout(()=> $alert.classList.add('d-none'), 6000);
+  <!-- Tabulator JS -->
+  <script src="https://unpkg.com/tabulator-tables@6.3.0/dist/js/tabulator.min.js"></script>
+  <!-- XLSX export helper -->
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+
+  <script>
+  // Helpers de red
+  async function patchCell(id, field, value) {
+    const resp = await fetch(`/admin/api/depositos/${id}`, {
+      method: 'PATCH',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ field, value })
+    });
+    if (!resp.ok) {
+      const data = await resp.json().catch(()=>({error:'Error desconocido'}));
+      throw new Error(data.error || 'No se pudo guardar');
+    }
+    return resp.json();
+  }
+  async function deleteRow(id) {
+    const resp = await fetch(`/admin/api/depositos/${id}`, { method:'DELETE' });
+    if (!resp.ok && resp.status !== 204) {
+      const data = await resp.json().catch(()=>({error:'Error desconocido'}));
+      throw new Error(data.error || 'No se pudo eliminar');
+    }
   }
 
-  // ----- Tema de Tabulator según data-bs-theme -----
-  const tableWrap = document.getElementById('tableWrap');
-  const isDark = (document.documentElement.getAttribute('data-bs-theme') === 'dark'
-               || document.body.getAttribute('data-bs-theme') === 'dark');
-  tableWrap.classList.add(isDark ? 'tabulator-midnight' : 'tabulator');
+  // Formateadores
+  function moneyFormatter(cell) {
+    const v = cell.getValue();
+    const num = Number(v || 0);
+    return num.toLocaleString('es-MX', { style: 'currency', currency: 'MXN' });
+  }
 
-  const tableEl = document.getElementById('regTable');
-
-  // ---------- Columnas (incluye datos fiscales) ----------
+  // Columnas (tipo Excel)
   const columns = [
-    { title:"ID", field:"id", width:80, hozAlign:"center", responsive:0 },
-
-    { title:"Fecha", field:"fecha_operacion", editor:"input", width:140, responsive:0,
-      headerTooltip:"YYYY-MM-DD",
-      validator: (cell, val) => !val || /^\d{4}-\d{2}-\d{2}$/.test(val) ? true : "Formato YYYY-MM-DD"
+    { title:"#", field:"id", width:70, hozAlign:"center", headerSort:false, frozen:true },
+    { title:"Fecha", field:"fecha_operacion", editor:"input", validator:["required"],
+      headerHozAlign:"center", width:130, responsive:0,
+      mutatorEdit:function(value){ return value || ""; },
+      // Acepta ISO (yyyy-mm-dd)
     },
+    { title:"Banco", field:"banco", width:130, editor:"select",
+      editorParams:{ values:["BBVA","Banorte","Azteca","Scotiabank","Santander"] }, responsive:0 },
+    { title:"Forma", field:"forma_pago", width:140, editor:"select",
+      editorParams:{ values:["Deposito","Transferencia"] }, responsive:0 },
+    { title:"Producto", field:"producto", width:150, editor:"select",
+      editorParams:{ values:["TAE","Pago de servicios"] }, responsive:0 },
+    { title:"Usuario", field:"numero_usuario", width:120, editor:"input",
+      validator:["required","integer","minLength:5","maxLength:5"], responsive:0 },
+    { title:"Importe", field:"importe", width:140, hozAlign:"right", formatter:moneyFormatter,
+      editor:"input", validator:["required"], responsive:0,
+      mutatorEdit:function(v){ return (v+"").replace(",","."); } },
 
-    { title:"Banco", field:"banco", editor:"select", width:150, responsive:0,
-      editorParams:{ values:["BBVA","Banorte","Azteca","Scotiabank","Santander"] }
-    },
+    { title:"BBVA tipo", field:"bbva_tipo", width:130, editor:"select",
+      editorParams:{ values:["","practicaja","caja"] }, responsive:2 },
 
-    { title:"Forma", field:"forma_pago", editor:"select", width:150, responsive:0,
-      editorParams:{ values:["Deposito","Transferencia"] }
-    },
+    { title:"Folio", field:"folio", width:130, editor:"input", responsive:1 },
+    { title:"Autorización", field:"autorizacion", width:130, editor:"input", responsive:2 },
+    { title:"Referencia", field:"referencia", width:160, editor:"input", responsive:1 },
 
-    { title:"Producto", field:"producto", editor:"select", width:180, responsive:0,
-      editorParams:{ values:["TAE","Pago de servicios"] }
-    },
+    { title:"Factura", field:"requiere_factura", width:100, hozAlign:"center",
+      formatter:"tickCross", editor:true, responsive:1 },
 
-    { title:"Usuario", field:"numero_usuario", width:130, hozAlign:"right", responsive:0,
-      editor:"number",
-      validator:["integer", { type: v => String(v||'').length <= 5, parameters:true, message:"5 dígitos máx." }]
-    },
+    { title:"Estatus", field:"estatus", width:140, editor:"select",
+      editorParams:{ values:["registrado","validado","rechazado","facturado"] }, responsive:1 },
 
-    { title:"Importe", field:"importe", width:140, hozAlign:"right", responsive:0,
-      editor:"input",
-      formatter:"money", formatterParams:{ decimal:".", thousand:",", symbol:"$ ", precision:2 },
-      mutatorEdit:(value)=>{ // normaliza input del usuario
-        if (value === null || value === undefined) return "0";
-        const s = String(value).replace(/[^\d.,-]/g,"").replace(",",".");
-        return s || "0";
+    { title:"Observaciones", field:"observaciones", width:240, editor:"textarea", responsive:3 },
+
+    // Extras visibles (read-only)
+    { title:"Razón social", field:"factura_titulo", width:220, headerTooltip:"Opción fiscal asignada", responsive:3 },
+    { title:"RFC", field:"factura_rfc", width:140, responsive:4 },
+    { title:"Email fiscal", field:"factura_email", width:220, responsive:4 },
+
+    // Acciones
+    { title:"Comprobante", field:"comprobante_id", width:140, headerSort:false, hozAlign:"center", responsive:0,
+      formatter:function(cell){
+        const id = cell.getValue();
+        if (!id) return "";
+        return `<a class="btn btn-sm btn-outline-primary" href="/admin/comprobante/${id}/ver" target="_blank">
+                  <i class="bi bi-file-earmark-text"></i> Ver
+                </a>`;
       }
     },
-
-    { title:"BBVA tipo", field:"bbva_tipo", editor:"select", width:130, responsive:2,
-      editorParams:{ values:["","practicaja","caja"] }
-    },
-
-    { title:"Folio", field:"folio", editor:"input", width:160, responsive:0 },
-    { title:"Autor.", field:"autorizacion", editor:"input", width:130, responsive:2 },
-    { title:"Ref.", field:"referencia", editor:"input", width:180, responsive:0 },
-
-    // --- Facturación ---
-    { title:"Facturar", field:"requiere_factura", width:110, hozAlign:"center", responsive:0,
-      editor:true, formatter:"tickCross"
-    },
-    { title:"Razón social", field:"factura_titulo", width:220, responsive:2,
-      formatter:(cell)=> cell.getValue() || "—"
-    },
-    { title:"RFC", field:"factura_rfc", width:140, responsive:2,
-      formatter:(cell)=> cell.getValue() || "—"
-    },
-    { title:"Email", field:"factura_email", width:220, responsive:2,
-      formatter:(cell)=> cell.getValue() || "—"
-    },
-
-    { title:"Estatus", field:"estatus", editor:"input", width:140, responsive:2 },
-    { title:"Obs.", field:"observaciones", editor:"textarea", widthGrow:2, responsive:3 },
-
-    { title:"Comprobante", field:"comprobante_id", width:150, hozAlign:"center", headerSort:false, responsive:1,
-      formatter:(cell)=>{
-        const id = cell.getValue();
-        return id ? `<a class="btn btn-sm btn-outline-light" href="/admin/comprobante/${id}/link" target="_blank">
-                       <i class="bi bi-paperclip"></i> Abrir
-                     </a>` : "—";
+    { title:"", width:80, headerSort:false, hozAlign:"center", frozen:true,
+      formatter:function(){
+        return `<button class="btn btn-sm btn-outline-danger"><i class="bi bi-trash"></i></button>`;
+      },
+      cellClick: async (e, cell) => {
+        const row = cell.getRow();
+        const data = row.getData();
+        if (!confirm(`¿Eliminar registro #${data.id}?`)) return;
+        try {
+          await deleteRow(data.id);
+          row.delete();
+        } catch (err) {
+          alert(err.message || "Error al eliminar");
+        }
       }
     },
   ];
 
-  // ---------- Tabla (Tabulator) ----------
-  let table = new Tabulator(tableEl, {
+  // Instancia Tabulator
+  const table = new Tabulator("#depositosGrid", {
+    layout:"fitDataStretch",           // ajusta columnas al contenedor
+    responsiveLayout:"collapse",       // colapsa columnas en móviles
+    reactiveData:false,
+    height:"70vh",
+    placeholder:"Sin datos para mostrar",
+    index:"id",
     columns,
-    data: [],                 // llenamos con loadData()
-    layout:"fitDataFill",
-    height:"72vh",
-    responsiveLayout:"collapse",
-    clipboard:true,
-    columnDefaults:{ headerHozAlign:"left" },
-    selectable:1,
-    rowHeight:44,
-
-    // Edición → PATCH
+    ajaxURL:"/admin/api/depositos",
+    ajaxConfig:"GET",
+    ajaxContentType:"json",
+    ajaxParams:{},
+    pagination:true,
+    paginationSize:50,
+    paginationSizeSelector:[25,50,100,200],
+    columnDefaults:{
+      headerFilter:false,
+      tooltip:true,
+      headerSort:true,
+      resizable:true,
+    },
+    // detalle responsive
+    responsiveLayoutCollapseFormatter:function(data){
+      const omit = ["id"];
+      const rows = [];
+      for (const [k,v] of Object.entries(data)) {
+        if (omit.includes(k) || v===null || v===undefined || v==="") continue;
+        rows.push(`<div class="d-flex justify-content-between"><span class="text-secondary">${k}</span><span class="fw-semibold">${v}</span></div>`);
+      }
+      return rows.join("");
+    },
     cellEdited: async function(cell){
-      try{
-        const field = cell.getField();
-        const row = cell.getRow().getData();
-        let value = cell.getValue();
-
-        if (field === "numero_usuario") value = parseInt(value,10) || 0;
-        if (field === "requiere_factura") value = !!value;
-
-        const r = await fetch(`/admin/api/depositos/${row.id}`, {
-          method:"PATCH",
-          headers:{ "Content-Type":"application/json" },
-          credentials:"same-origin",
-          body: JSON.stringify({ field, value })
-        });
-        if(!r.ok){
-          const txt = await r.text();
-          throw new Error(`PATCH ${r.status}: ${txt}`);
-        }
-        const data = await r.json();
-        cell.getRow().update(data); // refresca fila con dato “oficial”
-      }catch(e){
-        showError(e);
+      const field = cell.getField();
+      const row = cell.getRow().getData();
+      const value = row[field];
+      try {
+        const updated = await patchCell(row.id, field, value);
+        cell.getRow().update(updated); // sincroniza extras (razón social, etc.)
+      } catch (err) {
+        alert(err.message || "No se pudo guardar");
         cell.restoreOldValue();
       }
     },
-
-    // Menú contextual: eliminar
-    rowContextMenu:[
-      { label:"Eliminar fila", action:function(e,row){ deleteSelected(); } }
-    ],
-
-    // Atajo Supr
-    keybindings:{
-      "deleteRow": function(){ deleteSelected(); }
-    },
   });
 
-  // Densidad
-  document.getElementById('fDensidad').addEventListener('change', (e)=>{
-    const h = parseInt(e.target.value,10) || 44;
-    table.updateOption("rowHeight", h);
-    table.redraw(true);
-  });
-
-  // CSV
-  document.getElementById('btnCSV').addEventListener('click', ()=>{
-    table.download("csv", `depositos_${new Date().toISOString().slice(0,10)}.csv`);
-  });
-
-  // Filtros → API
-  async function loadData(){
-    const u = document.getElementById('fUsuario').value.trim();
-    const b = document.getElementById('fBanco').value;
-    const f = document.getElementById('fForma').value;
-    const q = new URLSearchParams();
-    if (u) q.set("numero_usuario", u);
-    if (b) q.set("banco", b);
-    if (f) q.set("forma_pago", f);
-
-    try{
-      const res = await fetch(`/admin/api/depositos?${q.toString()}`, { credentials:'same-origin' });
-      if(!res.ok) throw new Error(`GET ${res.status}`);
-      const data = await res.json();
-      table.setData(data);
-      table.redraw(true);
-    }catch(e){ showError(e); }
+  // Filtros (recarga por servidor para no traer todo)
+  async function reload() {
+    const banco = document.getElementById('f_banco').value || "";
+    const forma = document.getElementById('f_forma').value || "";
+    const usuario = document.getElementById('f_usuario').value || "";
+    table.setData("/admin/api/depositos", { banco, forma_pago: forma, numero_usuario: usuario });
   }
+  document.getElementById('btnBuscar').addEventListener('click', reload);
 
-  document.getElementById('btnFiltrar').addEventListener('click', loadData);
-  document.getElementById('btnLimpiar').addEventListener('click', ()=>{
-    document.getElementById('fUsuario').value = '';
-    document.getElementById('fBanco').value = '';
-    document.getElementById('fForma').value = '';
-    loadData();
+  // Export
+  document.getElementById('dlCsv').addEventListener('click', (e)=>{
+    e.preventDefault();
+    table.download("csv", "depositos.csv");
+  });
+  document.getElementById('dlXlsx').addEventListener('click', (e)=>{
+    e.preventDefault();
+    // usa el polyfill XLSX incluido
+    table.download("xlsx", "depositos.xlsx", { sheetName:"Registros" });
   });
 
-  // Supr para borrar
-  function deleteSelected(){
-    const row = table.getSelectedRows()[0];
-    if (!row) return;
-    const data = row.getData();
-    if (!confirm(`¿Eliminar registro #${data.id}?`)) return;
-
-    fetch(`/admin/api/depositos/${data.id}`, {
-      method:"DELETE", credentials:"same-origin"
-    }).then(r=>{
-      if(!r.ok && r.status!==204) return r.text().then(t=>{ throw new Error(`DELETE ${r.status}: ${t}`) });
-      row.delete();
-    }).catch(showError);
-  }
-  document.addEventListener('keydown', (e)=>{ if (e.key === 'Delete') deleteSelected(); });
-
-  // Auto-refresco si cambian fiscales (desde /admin/fiscales)
-  try{
-    window.addEventListener('storage', (ev)=>{ if (ev.key === 'ms_fiscales_touch') loadData(); });
-  }catch{}
-
-  // Primera carga
-  loadData();
-})();
-</script>
+  // Carga inicial
+  reload();
+  </script>
 {% endblock %}

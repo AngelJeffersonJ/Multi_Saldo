@@ -34,6 +34,21 @@ def _is_authed() -> bool:
     return bool(session.get("admin_authed"))
 
 
+@bp.get("/api/opciones_factura")
+def api_opciones_factura():
+    if not _is_authed():
+        return abort(401)
+    q = (request.args.get("numero_usuario") or "").strip()
+    if not q.isdigit():
+        return jsonify([])
+    items = (FacturaOpcion.query
+             .filter(FacturaOpcion.numero_usuario == int(q))
+             .order_by(FacturaOpcion.titulo.asc())
+             .all())
+    data = [{"id": it.id, "titulo": it.titulo, "rfc": it.rfc, "email": it.email} for it in items]
+    return jsonify(data)
+
+
 # ---------------------------- Auth ----------------------------
 @bp.route("/login", methods=["GET", "POST"])
 def login():
