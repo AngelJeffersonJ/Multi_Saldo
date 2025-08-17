@@ -5,11 +5,9 @@
 <style>
   .table-wrap{ overflow:auto; }
   .table thead th{ white-space:nowrap; }
-  .cell-editing{ background:rgba(255,255,0,.15); outline:2px dashed rgba(255,255,0,.4); }
-  .table-responsive-stacked td[data-label]::before{
-    content: attr(data-label) ": ";
-    font-weight:600; color:var(--bs-secondary-color); display:none;
-  }
+  .cell-editing{ background:rgba(255,255,0,.12); outline:2px dashed rgba(255,255,0,.35); }
+  .saving-indicator{ position:fixed; right:1rem; bottom:1rem; z-index:1050; }
+  .table-responsive-stacked td[data-label]::before{ content: attr(data-label) ": "; font-weight:600; color:var(--bs-secondary-color); display:none; }
   @media(max-width: 768px){
     .table-responsive-stacked thead{ display:none; }
     .table-responsive-stacked tbody tr{ display:block; margin-bottom:.75rem; border:1px solid var(--bs-border-color); border-radius:.5rem; }
@@ -91,14 +89,40 @@
     </table>
   </div>
 </div>
+
+<!-- indicador guardando -->
+<div class="saving-indicator d-none" id="saving">
+  <div class="alert alert-secondary shadow-sm py-1 px-2 mb-0">
+    <span class="spinner-border spinner-border-sm me-2"></span> Guardando…
+  </div>
+</div>
+
+<!-- toasts -->
+<div class="position-fixed top-0 end-0 p-3" style="z-index: 1080">
+  <div id="toastOk" class="toast align-items-center text-bg-success border-0 mb-2" role="alert">
+    <div class="d-flex">
+      <div class="toast-body">Guardado.</div>
+      <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>
+    </div>
+  </div>
+  <div id="toastErr" class="toast align-items-center text-bg-danger border-0" role="alert">
+    <div class="d-flex">
+      <div class="toast-body">Error al guardar.</div>
+      <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>
+    </div>
+  </div>
+</div>
 {% endblock %}
 
 {% block body_extra %}
 <script>
-/* ===== Utilities ===== */
+/* ===== Utils ===== */
+const qs = s => document.querySelector(s);
+const qsa = s => Array.from(document.querySelectorAll(s));
+const show = el => el.classList.remove('d-none');
+const hide = el => el.classList.add('d-none');
+const toast = (id, msg) => { const t = new bootstrap.Toast(qs(id)); qs(id+' .toast-body').textContent = msg; t.show(); };
 const money = v => (Number(v||0)).toLocaleString('es-MX',{style:'currency',currency:'MXN'});
-const qs = sel => document.querySelector(sel);
-const qsa = sel => Array.from(document.querySelectorAll(sel));
 
 async function getJSON(url, params){
   const full = params ? url + "?" + new URLSearchParams(params) : url;
@@ -107,11 +131,13 @@ async function getJSON(url, params){
   return r.json();
 }
 async function patchJSON(url, body){
+  show(qs('#saving'));
   const r = await fetch(url, {
     method:"PATCH", credentials:"same-origin",
     headers:{"Content-Type":"application/json", Accept:"application/json"},
     body:JSON.stringify(body)
-  });
+  }).catch(e => { hide(qs('#saving')); throw e; });
+  hide(qs('#saving'));
   if(!r.ok){ throw new Error("PATCH "+r.status+" "+(await r.text()).slice(0,200)); }
   return r.json();
 }
@@ -154,90 +180,128 @@ function renderRows(rows){
       td.dataset.id = row.id;
       td.textContent = fmt(row) ?? "";
       if(editable) td.setAttribute("data-editable","1");
-      // boolean visual para requiere_factura
       if(field==="requiere_factura"){ td.dataset.bool = "1"; }
       tr.appendChild(td);
     }
-    // Comprobante
     const tdComp = document.createElement("td");
     tdComp.dataset.label = "Comprobante";
     tdComp.innerHTML = row.comprobante_id
       ? `<a class="btn btn-sm btn-outline-primary" target="_blank" href="/admin/comprobante/${row.comprobante_id}/ver"><i class="bi bi-file-earmark-text"></i> Ver</a>`
       : "";
     tr.appendChild(tdComp);
-    // Acciones
+
     const tdAct = document.createElement("td");
     tdAct.innerHTML = `<button class="btn btn-sm btn-outline-danger"><i class="bi bi-trash"></i></button>`;
     tdAct.querySelector("button").addEventListener("click", async ()=>{
       if(!confirm(`¿Eliminar registro #${row.id}?`)) return;
       try{ await del(`/admin/api/depositos/${row.id}`); tr.remove(); }
-      catch(e){ alert(e.message); }
+      catch(e){ toast('#toastErr', e.message); }
     });
     tr.appendChild(tdAct);
-
     tbody.appendChild(tr);
   }
   attachEditors();
 }
 
-/* ===== Edición inline ===== */
+/* ===== Edición inline real (PATCH a la BD) ===== */
 function attachEditors(){
   qsa('#grid td[data-editable="1"]').forEach(td=>{
     td.addEventListener("click", ()=>{
       if(td.querySelector("input,select,textarea")) return;
+
       const id    = td.dataset.id;
       const field = td.dataset.field;
-      const oldv  = td.dataset.bool ? (td.textContent.trim()==="✓" ? "1":"0")
-                    : td.textContent.trim();
+      const rawText = td.textContent.trim();
       td.classList.add("cell-editing");
 
-      // editor básico
+      // Construir editor apropiado por campo
       let input;
       if(field==="forma_pago"){
-        input = htmlSelect(["Deposito","Transferencia"], oldv);
+        input = select(["Deposito","Transferencia"], rawText);
       } else if(field==="banco"){
-        input = htmlSelect(["BBVA","Banorte","Azteca","Scotiabank","Santander"], oldv);
+        input = select(["BBVA","Banorte","Azteca","Scotiabank","Santander"], rawText);
       } else if(field==="producto"){
-        input = htmlSelect(["TAE","Pago de servicios"], oldv);
+        input = select(["TAE","Pago de servicios"], rawText);
       } else if(field==="bbva_tipo"){
-        input = htmlSelect(["","practicaja","caja"], oldv);
+        input = select(["","practicaja","caja"], rawText);
+      } else if(field==="estatus"){
+        input = select(["registrado","validado","rechazado","facturado"], rawText);
       } else if(field==="requiere_factura"){
-        input = htmlSelect(["0","1"], oldv); // 0/1
+        // checkbox ☑ -> boolean real
+        const chk = document.createElement("input");
+        chk.type = "checkbox";
+        chk.className = "form-check-input";
+        chk.checked = (rawText==="✓");
+        input = document.createElement("label");
+        input.className = "d-flex align-items-center gap-2";
+        input.appendChild(chk);
+        input.append(" Requiere");
+        input.getValue = ()=> chk.checked;            // boolean
+      } else if(field==="fecha_operacion"){
+        const v = rawText || "";
+        input = document.createElement("input");
+        input.type = "date";
+        input.className = "form-control form-control-sm";
+        input.value = v;
+        input.getValue = ()=> input.value;            // yyyy-mm-dd
       } else if(field==="observaciones"){
-        input = document.createElement("textarea"); input.rows=2; input.value=oldv;
+        input = document.createElement("textarea");
+        input.rows = 2;
+        input.className = "form-control form-control-sm";
+        input.value = rawText;
+        input.getValue = ()=> input.value.trim();
       } else {
         input = document.createElement("input");
-        input.type = (field==="importe" || field==="numero_usuario") ? "text" : "text";
-        input.value = oldv;
+        input.type = "text";
+        input.className = "form-control form-control-sm";
+        input.value = (field==="importe" ? rawText.replace(/[^0-9.,-]/g,"") : rawText);
+        input.getValue = ()=> input.value.trim();
       }
-      input.className = "form-control form-control-sm";
-      td.innerHTML = ""; td.appendChild(input); input.focus(); input.select();
 
-      const finish = async (ok)=>{
-        const newv = (field==="requiere_factura") ? (input.value==="1") : input.value;
-        if(!ok){ td.textContent = oldv; td.classList.remove("cell-editing"); return; }
-        try{
-          const updated = await patchJSON(`/admin/api/depositos/${id}`, { field, value:newv });
-          // refresca celda con formateo
-          if(field==="importe"){ td.textContent = money(updated.importe); }
-          else if(field==="requiere_factura"){ td.textContent = updated.requiere_factura ? "✓":"✗"; }
-          else { td.textContent = (updated[field] ?? ""); }
-        }catch(e){
-          alert(e.message); td.textContent = oldv;
+      // Render editor
+      td.innerHTML = ""; td.appendChild(input); (input.querySelector('input,textarea,select')||input).focus();
+
+      const commit = async(save)=>{
+        if(!save){ td.textContent = rawText; td.classList.remove("cell-editing"); return; }
+
+        let value = input.getValue ? input.getValue() : (input.value ?? "");
+        // Normalizaciones para tu backend:
+        if(field==="numero_usuario"){
+          value = value ? parseInt(String(value).replace(/\D/g,""),10) : null;
+        } else if(field==="importe"){
+          value = (String(value||"0").replace(",",".")); // tu API hace Decimal(s)
+        } else if(field==="requiere_factura"){
+          // enviar boolean
+          value = !!value;
+        } else if(field==="fecha_operacion"){
+          // ya va en yyyy-mm-dd
         }
-        td.classList.remove("cell-editing");
+
+        try{
+          const updated = await patchJSON(`/admin/api/depositos/${id}`, { field, value });
+          // pintar según respuesta oficial (no lo que escribimos)
+          if(field==="importe"){ td.textContent = money(updated.importe); }
+          else if(field==="requiere_factura"){ td.textContent = updated.requiere_factura ? "✓" : "✗"; }
+          else { td.textContent = updated[field] ?? ""; }
+          td.classList.remove("cell-editing");
+          toast('#toastOk', 'Guardado.');
+        }catch(e){
+          td.textContent = rawText; td.classList.remove("cell-editing");
+          toast('#toastErr', e.message);
+        }
       };
 
-      input.addEventListener("keydown", (ev)=>{
-        if(ev.key==="Enter" && !(input.tagName==="TEXTAREA" && ev.shiftKey)){ ev.preventDefault(); finish(true); }
-        if(ev.key==="Escape"){ ev.preventDefault(); finish(false); }
+      // listeners
+      (input.querySelector('input,textarea,select')||input).addEventListener("keydown", (ev)=>{
+        if(ev.key==="Enter" && !(ev.shiftKey && input.tagName==="TEXTAREA")){ ev.preventDefault(); commit(true); }
+        if(ev.key==="Escape"){ ev.preventDefault(); commit(false); }
       });
-      input.addEventListener("blur", ()=> finish(true));
+      (input.querySelector('input,textarea,select')||input).addEventListener("blur", ()=> commit(true));
     });
   });
 }
 
-function htmlSelect(options, value){
+function select(options, value){
   const sel = document.createElement("select");
   sel.className = "form-select form-select-sm";
   for(const opt of options){
@@ -246,6 +310,7 @@ function htmlSelect(options, value){
     if(String(opt)===String(value)) o.selected = true;
     sel.appendChild(o);
   }
+  sel.getValue = ()=> sel.value;
   return sel;
 }
 
@@ -259,7 +324,7 @@ async function reload(){
     renderRows(rows);
   }catch(e){
     console.error(e);
-    alert("No se pudieron cargar datos: "+e.message);
+    toast('#toastErr', "No se pudieron cargar datos: "+e.message);
   }
 }
 qs('#btnBuscar').addEventListener('click', reload);
